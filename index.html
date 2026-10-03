@@ -29,6 +29,7 @@ const CHARS = {
   esmay: {name: 'Esmay', kind: 'girl', hair: '#f2b134', style: 'pigtails'},
   // baby Jasmine rides in a pram that Naomi pushes; the pram makes the hero wider
   jasmine: {name: 'Jasmine', sub: 'with Naomi', kind: 'girl', hair: '#6b4226', style: 'bun', pram: true, w: 36},
+  matt:  {name: 'Matt',  kind: 'boy',  hair: '#7a5a2e', style: 'beard'},
 };
 const CHAR_IDS = Object.keys(CHARS);
 const NAMES = Object.fromEntries(CHAR_IDS.map(k => [k, CHARS[k].name]));
@@ -393,7 +394,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.code] = false; });
 function cardRects() {
   const o = {};
-  CHAR_IDS.forEach((k, i) => { o[k] = {x: 26 + i * 152, y: 108, w: 140, h: 176}; });
+  CHAR_IDS.forEach((k, i) => { o[k] = {x: 26 + i * 128, y: 108, w: 120, h: 176}; });
   return o;
 }
 function canvasPos(e) {
@@ -723,7 +724,7 @@ function drawHero(x, y, charId, face, vx, ground, t, skinIdx = 0) {
   // head
   rect(skin, -7, -6, 14, 12);
   const hc = ch.hair;
-  if (ch.style === 'short') {
+  if (ch.style === 'short' || ch.style === 'beard') {
     rect(hc, -8, -8, 16, 5);
     rect(hc, -8, -4, 3, 4);
   } else if (ch.style === 'spiky') {
@@ -755,6 +756,10 @@ function drawHero(x, y, charId, face, vx, ground, t, skinIdx = 0) {
   // eye + cheek
   rect('#222', 2, -2, 2, 3);
   rect('#ff8787', 3, 2, 3, 2);
+  if (ch.style === 'beard') {                  // Matt's short, neat beard and a friendly smile
+    rect('#6b4a26', -7, 2, 13, 5); rect('#6b4a26', -6, 7, 10, 2); rect('#6b4a26', -7, -2, 2, 5);
+    rect('#fff', 1, 4, 4, 1);
+  }
   if (charId === 'brad') {                     // round glasses
     ctx.strokeStyle = '#222'; ctx.lineWidth = 1.5;
     ctx.strokeRect(0.5, -4, 6, 6);
@@ -1320,7 +1325,7 @@ function drawSelect() {
     ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 18); ctx.fill(); if (sel) ctx.stroke();
     ctx.save();
     ctx.translate(r.x + r.w/2, r.y + 84);
-    const sc = sel ? 3.3 + Math.sin(tick * 0.1) * 0.12 : 2.8;
+    const sc = sel ? 3.0 + Math.sin(tick * 0.1) * 0.1 : 2.6;
     ctx.scale(sc, sc);
     const px = -(CHARS[k].w || 20) / 2;
     ctx.save(); ctx.translate(0, -14); drawHero(px, 0, k, 1, 0, true, tick, skin); ctx.restore();
@@ -1341,7 +1346,7 @@ function drawSelect() {
                  : petOpen ? pk.perk : `${lockMsg(pk.req)} · ${pk.perk}`, VW/2, 356, 13, petOpen || pet === 0 ? '#fff' : '#ffa8a8');
   if (pet > 0) { ctx.globalAlpha = petOpen ? 1 : 0.35; drawPet(pk.kind, VW/2 - 150, 354, 1, tick, 1.5, false); ctx.globalAlpha = 1; }
   text(`«  ◀  Start at ${LEVELS[startLvl].label}: ${LEVELS[startLvl].name}  ▶  »`, VW/2, 376, 14, '#fff');
-  if (!isTouch) text('← → or 1-5 hero  ·  ↑ ↓ skin  ·  Z X pet  ·  Q E level  ·  Enter to start', VW/2, 92, 13, '#fff');
+  if (!isTouch) text('← → or 1-6 hero  ·  ↑ ↓ skin  ·  Z X pet  ·  Q E level  ·  Enter to start', VW/2, 92, 13, '#fff');
   ctx.fillStyle = '#40c057'; ctx.beginPath(); ctx.roundRect(PLAY_BTN.x, PLAY_BTN.y, PLAY_BTN.w, PLAY_BTN.h, 14); ctx.fill();
   ctx.strokeStyle = '#2b8a3e'; ctx.lineWidth = 4; ctx.stroke();
   text('▶ PLAY', VW/2, PLAY_BTN.y + PLAY_BTN.h/2, 22);
