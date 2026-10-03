@@ -130,12 +130,12 @@ function buildLevel(n) {
     grid[12][c] = '#'; grid[13][c] = '#';
   }
   const spots = L.extraCoins.map(p => p.slice());
-  // Low platforms (row 9) right before a hole would bump your head mid-jump, so leave
-  // the last 3 tiles before every hole clear.
-  const clearRunUp = c => L.gaps.some(g => c >= g[0] - 3 && c < g[0]);
+  // A platform at row 7 or lower near a hole bumps your head mid-jump (or blocks the landing),
+  // so keep the whole jump corridor clear: 3 tiles before the hole to 3 tiles after it.
+  const clearRunUp = c => L.gaps.some(g => c >= g[0] - 3 && c <= g[1] + 3);
   for (const [c, r, len] of L.plats) {
     for (let i = 0; i < len; i++) {
-      if (r === 9 && clearRunUp(c + i)) continue;
+      if (r >= 7 && clearRunUp(c + i)) continue;
       grid[r][c + i] = '=';
       spots.push([c + i, r - 1]);
     }
@@ -159,6 +159,20 @@ const SKINS = [
   { name: 'Robot',     req: 13, boy: ['#868e96', '#495057'], girl: ['#adb5bd', '#6c757d'], extra: 'antenna' },
   { name: 'Dragon',    req: 14, boy: ['#e8590c', '#c92a2a'], girl: ['#ff922b', '#e03131'], extra: 'horns' },
   { name: 'Rainbow',   req: 16, boy: ['rainbow', 'rainbow'], girl: ['rainbow', 'rainbow'], extra: 'halo' },
+  { name: 'Burger Crew', req: 6, boy: ['#da291c', '#2b2b33'], girl: ['#da291c', '#2b2b33'], extra: 'crew' },
+];
+
+// Pets follow you around. Like skins, they unlock when you have beaten `req` levels.
+const PETS = [
+  { name: 'No pet',  req: 0 },
+  { name: 'Prime',   kind: 'dog',     req: 1,  perk: 'Coin magnet: pulls in coins nearby' },
+  { name: 'Dexter',  kind: 'cat',     req: 2,  perk: 'Lucky: starts every life with a shield' },
+  { name: 'Clover',  kind: 'bunny',   req: 4,  perk: 'Springy: jumps 10% higher' },
+  { name: 'Waddles', kind: 'duck',    req: 6,  perk: 'Flutter: hold jump to float down slowly' },
+  { name: 'Bamboo',  kind: 'panda',   req: 8,  perk: 'Heavy stomp: can stomp spiky hedgehogs, bounces higher' },
+  { name: 'Rusty',   kind: 'fox',     req: 10, perk: 'Speedy: runs faster' },
+  { name: 'Ember',   kind: 'dragon',  req: 12, perk: 'Fireproof: spikes cannot hurt you' },
+  { name: 'Sparkle', kind: 'unicorn', req: 15, perk: 'Magic: power-ups last twice as long' },
 ];
 
 // Power-up items floating in the levels
@@ -173,7 +187,7 @@ const ITEM_INFO = {
 };
 const POWER_FRAMES = {star: 480, boots: 900, feather: 900};
 const SAVE_KEY = 'jesse-izzy-hop';
-let save = {cleared: 0, skin: 0, char: 'jesse'};
+let save = {cleared: 0, skin: 0, char: 'jesse', pet: 0};
 try { Object.assign(save, JSON.parse(localStorage.getItem(SAVE_KEY)) || {}); } catch (e) {}
 function writeSave() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
 const skinUnlocked = i => save.cleared >= SKINS[i].req;
@@ -182,7 +196,10 @@ const skinUnlocked = i => save.cleared >= SKINS[i].req;
 let state = 'select';           // select | play | dead | clear | win | over
 let choice = CHARS[save.char] ? save.char : 'jesse';
 let skin = SKINS[save.skin] && skinUnlocked(save.skin) ? save.skin : 0;
-let startLvl = 0, flash = 0, unlockMsg = '';
+const petUnlocked = i => save.cleared >= PETS[i].req;
+let pet = PETS[save.pet] && petUnlocked(save.pet) ? save.pet : 0;
+let petPos = {x: 0, y: 0, face: 1};
+let startLvl = 0, flash = 0, flashMsg = '', unlockMsg = '';
 let hero, enemies, coins, items, camX, score, lives, timeLeft, stateTimer = 0, tick = 0;
 const keys = {};
 const pressed = {};
@@ -213,14 +230,14 @@ function applyItem(type) {
   score += 25;
   if (type === 'heart') lives = Math.min(lives + 1, 9);
   else if (type === 'shield') h.shield = true;
-  else h[type] = POWER_FRAMES[type];
+  else h[type] = POWER_FRAMES[type] * (PETS[pet].kind === 'unicorn' ? 2 : 1);   // Sparkle doubles power-up time
 }
 
 function resetLevel() {
   const spots = buildLevel(lvl);
   const L = LEVELS[lvl];
   hero = {x: 2*T, y: 12*T - 28, w: CHARS[choice].w || 20, h: 28, vx: 0, vy: 0, face: 1, ground: false, coyote: 0, buf: 0, inv: 0,
-          star: 0, boots: 0, feather: 0, shield: false, air2: true};
+          star: 0, boots: 0, feather: 0, shield: PETS[pet].kind === 'cat', air2: true};   // Dexter: free shield
   enemies = L.enemies.map(c => ({type: 'raccoon', x: c*T, y: 12*T - 20, w: 24, h: 20, vx: -theme.espeed, alive: true, squash: 0}));
   const sp = theme.espeed;
   for (const c of L.snakes || []) enemies.push({type: 'snake', x: c*T, y: 12*T - 14, w: 28, h: 14, vx: -1, base: Math.max(0.6, 0.55 * sp), ph: c, alive: true, squash: 0});
@@ -230,10 +247,12 @@ function resetLevel() {
   items = placeItems(lvl);
   coins = spots.filter(([c, r]) => !items.some(it => it.c === c && it.r === r)).map(([c, r]) => ({x: c*T + 16, y: r*T + 16, got: false}));
   camX = 0;
+  petPos = {x: hero.x - 22, y: hero.y + hero.h, face: 1};
 }
 function newGame() {
-  if (!skinUnlocked(skin)) { flash = 90; return; }
-  save.skin = skin; save.char = choice; writeSave();
+  if (!skinUnlocked(skin)) { flash = 90; flashMsg = 'That skin is still locked!'; return; }
+  if (!petUnlocked(pet)) { flash = 90; flashMsg = 'That pet is still locked!'; return; }
+  save.skin = skin; save.char = choice; save.pet = pet; writeSave();
   score = 0; lives = 3; lvl = startLvl; resetLevel(); state = 'play';
 }
 function nextLevel() { lvl++; lives = Math.max(lives, 3); resetLevel(); state = 'play'; }
@@ -242,11 +261,14 @@ function finishLevel() {
   save.cleared = Math.max(save.cleared, lvl + 1);
   writeSave();
   const fresh = SKINS.filter(s => s.req > before && s.req <= save.cleared).map(s => s.name);
-  unlockMsg = fresh.length ? 'New skin unlocked: ' + fresh.join(', ') + '!' : '';
+  const freshPets = PETS.filter(p => p.req > before && p.req <= save.cleared).map(p => p.name);
+  unlockMsg = [fresh.length ? 'New skin unlocked: ' + fresh.join(', ') + '!' : '',
+               freshPets.length ? 'New pet unlocked: ' + freshPets.join(', ') + '!' : ''].filter(Boolean).join('   ');
   score += 200;
   state = lvl < LEVELS.length - 1 ? 'clear' : 'win';
 }
 function cycleSkin(d) { skin = (skin + d + SKINS.length) % SKINS.length; }
+function cyclePet(d) { pet = (pet + d + PETS.length) % PETS.length; }
 function cycleStart(d) { startLvl = Math.max(0, Math.min(save.cleared, LEVELS.length - 1, startLvl + d)); }
 
 // ---------- Input ----------
@@ -258,7 +280,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => { keys[e.code] = false; });
 function cardRects() {
   const o = {};
-  CHAR_IDS.forEach((k, i) => { o[k] = {x: 26 + i * 152, y: 112, w: 140, h: 196}; });
+  CHAR_IDS.forEach((k, i) => { o[k] = {x: 26 + i * 152, y: 108, w: 140, h: 176}; });
   return o;
 }
 function canvasPos(e) {
@@ -278,8 +300,9 @@ cv.addEventListener('click', e => {
       }
     }
     const side = p.x < VW/2 ? -1 : 1;
-    if (Math.abs(p.x - VW/2) < 200 && p.y >= 314 && p.y <= 346) cycleSkin(side);
-    else if (Math.abs(p.x - VW/2) < 200 && p.y >= 362 && p.y <= 390) cycleStart(side);
+    if (Math.abs(p.x - VW/2) < 200 && p.y >= 288 && p.y <= 312) cycleSkin(side);
+    else if (Math.abs(p.x - VW/2) < 200 && p.y >= 326 && p.y <= 350) cyclePet(side);
+    else if (Math.abs(p.x - VW/2) < 200 && p.y >= 364 && p.y <= 388) cycleStart(side);
     else if (p.x >= PLAY_BTN.x && p.x <= PLAY_BTN.x + PLAY_BTN.w && p.y >= PLAY_BTN.y && p.y <= PLAY_BTN.y + PLAY_BTN.h) newGame();
   } else if (state === 'clear') nextLevel();
   else if (state === 'win' || state === 'over') state = 'select';
@@ -378,6 +401,8 @@ function update() {
     CHAR_IDS.forEach((k, i) => { if (pressed['Digit' + (i + 1)]) choice = k; });
     if (pressed.ArrowUp || pressed.KeyW) cycleSkin(-1);
     if (pressed.ArrowDown || pressed.KeyS) cycleSkin(1);
+    if (pressed.KeyZ) cyclePet(-1);
+    if (pressed.KeyX) cyclePet(1);
     if (pressed.KeyQ) cycleStart(-1);
     if (pressed.KeyE) cycleStart(1);
     if (pressed.Enter || pressed.Space) newGame();
@@ -398,6 +423,7 @@ function update() {
   }
 
   const h = hero;
+  const pk = PETS[pet].kind || '';                 // the pet's perk is keyed on its kind
   const left = keys.ArrowLeft || keys.KeyA || touch.left, right = keys.ArrowRight || keys.KeyD || touch.right;
   const jumpHeld = keys.Space || keys.ArrowUp || keys.KeyW || touch.jump;
   const jumpPressed = pressed.Space || pressed.ArrowUp || pressed.KeyW;
@@ -406,7 +432,8 @@ function update() {
   if (left) { h.vx -= accel; h.face = -1; }
   if (right) { h.vx += accel; h.face = 1; }
   if (!left && !right) h.vx *= h.ground ? 0.75 : 0.95;
-  h.vx = Math.max(-3.5, Math.min(3.5, h.vx));
+  const vmax = pk === 'fox' ? 4.3 : 3.5;           // Rusty runs faster
+  h.vx = Math.max(-vmax, Math.min(vmax, h.vx));
   if (Math.abs(h.vx) < 0.05) h.vx = 0;
 
   if (jumpPressed) h.buf = 6;
@@ -416,12 +443,13 @@ function update() {
   if (h.boots > 0) h.boots--;
   if (h.feather > 0) h.feather--;
   if (h.ground) h.air2 = true;
-  if (h.buf > 0 && h.coyote > 0) { h.vy = h.boots > 0 ? -14.5 : -11.5; h.buf = 0; h.coyote = 0; h.ground = false; }
+  if (h.buf > 0 && h.coyote > 0) { h.vy = (h.boots > 0 ? -14.5 : -11.5) * (pk === 'bunny' ? 1.1 : 1); h.buf = 0; h.coyote = 0; h.ground = false; }
   else if (jumpPressed && h.feather > 0 && h.air2 && !h.ground && h.coyote <= 0) {   // feather: one extra jump in the air
     h.vy = h.boots > 0 ? -13 : -10.5; h.air2 = false; h.buf = 0;
   }
   if (!jumpHeld && h.vy < -4) h.vy = -4;       // variable jump height
   h.vy = Math.min(h.vy + 0.6, 14);
+  if (pk === 'duck' && jumpHeld && h.vy > 2.5 && !h.ground) h.vy = 2.5;   // Waddles: hold jump to flutter down
 
   const res = moveBody(h, h.vx, h.vy);
   h.ground = res.ground;
@@ -430,7 +458,12 @@ function update() {
   if (h.y > VH - 12) { loseLife(true); return; }   // fell down a hole
 
   // coins
-  for (const c of coins) if (!c.got && Math.hypot(c.x - (h.x + h.w/2), c.y - (h.y + h.h/2)) < 22) { c.got = true; score += 10; }
+  for (const c of coins) {
+    if (c.got) continue;
+    const dx = h.x + h.w/2 - c.x, dy = h.y + h.h/2 - c.y, dist = Math.hypot(dx, dy);
+    if (pk === 'dog' && dist < 90 && dist > 1) { c.x += dx / dist * 4; c.y += dy / dist * 4; }   // Prime: coin magnet
+    if (dist < 22) { c.got = true; score += 10; }
+  }
 
   // power-ups
   for (const it of items) if (!it.got && Math.hypot(it.x - (h.x + h.w/2), it.y - (h.y + h.h/2)) < 24) { it.got = true; applyItem(it.type); }
@@ -457,7 +490,9 @@ function update() {
     }
     if (h.x < e.x + e.w && h.x + h.w > e.x && h.y < e.y + e.h && h.y + h.h > e.y) {
       if (h.star > 0) { e.alive = false; e.squash = 20; score += 50; }
-      else if (h.vy > 0 && h.y + h.h - e.y < 16 && !e.spiky) { e.alive = false; e.squash = 20; h.vy = -8; score += 50; }
+      else if (h.vy > 0 && h.y + h.h - e.y < 16 && (!e.spiky || pk === 'panda')) {   // Bamboo can stomp hedgehogs
+        e.alive = false; e.squash = 20; h.vy = pk === 'panda' ? -12 : -8; score += 50;
+      }
       else if (h.inv <= 0) {
         if (h.shield) { h.shield = false; h.inv = 90; }     // the shield pops instead of you
         else { loseLife(); return; }
@@ -469,13 +504,19 @@ function update() {
   // spikes
   for (let r = Math.floor(h.y / T); r <= Math.floor((h.y + h.h - 0.01) / T); r++)
     for (let c = Math.floor(h.x / T); c <= Math.floor((h.x + h.w - 0.01) / T); c++)
-      if (grid[r] && grid[r][c] === '^' && h.star <= 0 && h.inv <= 0 &&
+      if (grid[r] && grid[r][c] === '^' && pk !== 'dragon' && h.star <= 0 && h.inv <= 0 &&
           h.x < c*T + 26 && h.x + h.w > c*T + 6 && h.y + h.h > r*T + 14) {
         if (h.shield) { h.shield = false; h.inv = 90; h.vy = -9; }   // shield pops and bounces you clear
         else { loseLife(); return; }
       }
 
   if (h.x + h.w > FLAG_C * T) { finishLevel(); return; }
+
+  // pet trots along behind you
+  const px = h.x + h.w/2 - h.face * (h.w/2 + 16);
+  petPos.x += (px - petPos.x) * 0.1;
+  petPos.y += (h.y + h.h - petPos.y) * 0.25;
+  if (Math.abs(px - petPos.x) > 3) petPos.face = px > petPos.x ? 1 : -1; else petPos.face = h.face;
 
   camX = Math.max(0, Math.min(W*T - VW, h.x + h.w/2 - VW/2));
 }
@@ -583,6 +624,10 @@ function drawHero(x, y, charId, face, vx, ground, t, skinIdx = 0) {
     ctx.beginPath(); ctx.moveTo(-7, -8); ctx.lineTo(-10, -16); ctx.lineTo(-3, -8); ctx.fill();
     ctx.beginPath(); ctx.moveTo(3, -8); ctx.lineTo(8, -16); ctx.lineTo(7, -8); ctx.fill();
   }
+  if (sk.extra === 'crew') {                   // fast-food crew: red cap with a yellow stripe, name badge
+    rect('#da291c', -8, -11, 16, 5); rect('#ffc72c', -8, -8, 16, 1.5); rect('#da291c', 4, -7, 9, 2);
+    rect('#ffc72c', 2, 7, 4, 3);
+  }
   if (sk.extra === 'halo') { ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, -15 + Math.sin(t * 0.1), 8, 3, 0, 0, 7); ctx.stroke(); }
   if (ch.pram) { ctx.restore(); drawPram(top, t, Math.abs(vx) > 0.5 && ground); }
   ctx.restore();
@@ -659,6 +704,77 @@ function drawItem(type, x, y, r, t) {
   } else {                                           // feather: double chevron
     ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.moveTo(-5, -1); ctx.lineTo(0, -6); ctx.lineTo(5, -1); ctx.moveTo(-5, 6); ctx.lineTo(0, 1); ctx.lineTo(5, 6); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Pets are drawn facing right with their feet at (0, 0).
+function drawPet(kind, x, y, face, t, sc = 1, trotting = false) {
+  const hop = trotting ? Math.abs(Math.sin(t * 0.3)) * 3 : 0;
+  ctx.save(); ctx.translate(Math.round(x), Math.round(y - hop)); ctx.scale(face * sc, sc);
+  const ell = (c, cx, cy, rx, ry) => { ctx.fillStyle = c; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, 7); ctx.fill(); };
+  const rect = (c, a, b, w, h) => { ctx.fillStyle = c; ctx.fillRect(a, b, w, h); };
+  const tri = (c, a, b, c2, d, e2, f) => { ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c2, d); ctx.lineTo(e2, f); ctx.fill(); };
+  const tail = (c, w, x0, y0, x1, y1, x2, y2) => { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(x1, y1, x2, y2); ctx.stroke(); };
+  const wag = Math.sin(t * 0.5) * 2, step = trotting ? Math.sin(t * 0.3) * 1.5 : 0;
+  if (kind === 'dog') {                                    // Prime, the orange dog
+    tail('#f08c00', 3, -7, -9, -12, -10, -12, -14 + wag);
+    rect('#d9730d', -6 + step, -3, 3, 3); rect('#d9730d', 2 - step, -3, 3, 3);
+    ell('#f08c00', -1, -7, 8, 5); ell('#fff3e0', 3, -5, 3, 3);
+    ell('#f59f00', 7, -11, 5.5, 5);
+    rect('#c2410c', 3, -15, 3, 6);
+    ell('#ffe8cc', 11, -9, 3.2, 2.4); ell('#222', 13.6, -10, 1.3, 1.2); rect('#222', 8, -13, 1.8, 1.8);
+  } else if (kind === 'cat') {                             // Dexter, the black cat
+    tail('#222', 3, -7, -6, -14, -7, -12, -15 + wag);
+    rect('#111', -6 + step, -3, 3, 3); rect('#111', 2 - step, -3, 3, 3);
+    ell('#222', -1, -6, 8, 4.5);
+    ell('#2b2b33', 7, -10, 5, 4.5);
+    tri('#2b2b33', 3.5, -12, 4.5, -18, 8, -13.5); tri('#2b2b33', 7.5, -13.5, 10.5, -18, 12, -11);
+    rect('#ffd43b', 8, -12, 2.2, 2.2); rect('#111', 8.8, -12, 0.8, 2.2); ell('#ff8fab', 12, -9.5, 1, 0.8);
+    ctx.strokeStyle = '#ced4da'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(11, -9); ctx.lineTo(15, -10); ctx.moveTo(11, -8.5); ctx.lineTo(15, -8); ctx.stroke();
+  } else if (kind === 'bunny') {                           // Clover
+    ell('#fff', -8, -6, 2.6, 2.6);
+    rect('#dee2e6', -5 + step, -3, 3, 3); rect('#dee2e6', 2 - step, -3, 3, 3);
+    ell('#f8f9fa', -1, -6, 7, 5); ell('#fff', 6, -10, 4.5, 4);
+    ell('#f8f9fa', 4.5, -18, 1.8, 5.5); ell('#f8f9fa', 8, -18, 1.8, 5.5);
+    ell('#ffa8c5', 4.5, -18, 0.9, 4); ell('#ffa8c5', 8, -18, 0.9, 4);
+    rect('#222', 7.5, -12, 1.8, 1.8); ell('#ff8fab', 10.5, -9.5, 1, 0.9);
+  } else if (kind === 'duck') {                            // Waddles, the duckling
+    rect('#ff922b', -4 + step, -2, 4, 2); rect('#ff922b', 1 - step, -2, 4, 2);
+    ell('#ffe066', -1, -7, 7, 5.5); ell('#fcc419', -3, -7, 3.5, 2.5);
+    ell('#ffe066', 5, -13, 4.3, 4.3);
+    tri('#ff922b', 8.5, -13.5, 13, -12, 8.5, -10.5);
+    rect('#222', 6, -15, 1.8, 1.8);
+  } else if (kind === 'panda') {                           // Bamboo
+    rect('#222', -5 + step, -3, 3.5, 3.5); rect('#222', 2 - step, -3, 3.5, 3.5);
+    ell('#fff', -1, -7, 8, 6); rect('#222', -3, -9, 5, 2);
+    ell('#fff', 6.5, -12.5, 5, 4.6);
+    ell('#222', 3, -16.5, 2.2, 2.2); ell('#222', 9.5, -17, 2.2, 2.2);
+    ell('#222', 7.5, -12.5, 2, 2.5); rect('#fff', 8, -13, 1, 1); ell('#222', 11.5, -11, 1.3, 1);
+  } else if (kind === 'fox') {                             // Rusty
+    ctx.save(); ctx.translate(-9, -8); ctx.rotate(-0.4 + Math.sin(t * 0.2) * 0.12);
+    ell('#e8590c', -4, 0, 6.5, 3.2); ell('#fff', -9, 0, 2.3, 2.2); ctx.restore();
+    rect('#6b2d12', -6 + step, -3, 3, 3); rect('#6b2d12', 2 - step, -3, 3, 3);
+    ell('#e8590c', -1, -7, 8, 4.5); ell('#f76707', 7, -10.5, 5, 4.3);
+    tri('#f76707', 3.5, -12.5, 4.5, -19, 8, -14); tri('#f76707', 8, -14, 11, -19, 12, -11.5);
+    tri('#6b2d12', 4.2, -16, 4.6, -19, 6, -16.5);
+    ell('#fff', 11, -8.5, 3.3, 2.2); ell('#222', 13.8, -9.5, 1.2, 1.1); rect('#222', 8, -12.5, 1.8, 1.8);
+  } else if (kind === 'dragon') {                          // Ember, the baby dragon
+    tail('#40c057', 3.5, -7, -6, -14, -6, -13, -12 + wag);
+    ctx.fillStyle = '#94d82d'; ctx.beginPath(); ctx.moveTo(-3, -10); ctx.lineTo(-9, -19 + Math.sin(t * 0.4) * 3); ctx.lineTo(2, -11); ctx.fill();
+    rect('#2f9e44', -6 + step, -3, 3, 3); rect('#2f9e44', 2 - step, -3, 3, 3);
+    ell('#40c057', -1, -7, 8, 5.5); ell('#d8f5a2', 2, -5, 4, 3);
+    ell('#51cf66', 7, -12, 5, 4.3);
+    tri('#fff', 5, -15, 5.5, -19.5, 7, -15.5); tri('#fff', 8.5, -15.5, 10, -19, 11, -14.5);
+    rect('#e03131', 8, -13.5, 1.8, 1.8); ell('#2f9e44', 11.5, -10.5, 2, 1.3);
+  } else if (kind === 'unicorn') {                         // Sparkle
+    tail('#ff6b6b', 2, -8, -9, -13, -10, -12, -4); tail('#4dabf7', 2, -8, -9, -14, -7, -13, -3);
+    rect('#dee2e6', -6 + step, -4, 2.5, 4); rect('#dee2e6', 3 - step, -4, 2.5, 4);
+    ell('#fff', -1, -8, 8, 5.5); ell('#fff', 8, -14, 4.8, 4);
+    tri('#ffd43b', 8, -17, 10, -24, 11.5, -16.5);
+    rect('#ff6b6b', 3, -18, 2, 3); rect('#ffd43b', 3, -15, 2, 3); rect('#51cf66', 3, -12, 2, 3); rect('#4dabf7', 3, -9, 2, 3);
+    rect('#222', 9, -15, 1.8, 1.8); ell('#ffa8c5', 12, -12, 1, 0.9);
   }
   ctx.restore();
 }
@@ -806,6 +922,8 @@ function drawWorld() {
     }
     if (hero.boots > 0) { ctx.fillStyle = '#51cf66aa'; ctx.beginPath(); ctx.ellipse(cx, hero.y + hero.h + 1, hero.w/2 + 4, 3, 0, 0, 7); ctx.fill(); }
   }
+  // pet
+  if (pet > 0) drawPet(PETS[pet].kind, petPos.x, petPos.y, petPos.face, tick, 1, hero.ground && Math.abs(hero.vx) > 0.5);
   // hero
   if (state !== 'dead' || stateTimer % 4 < 3) drawHero(hero.x, hero.y, choice, hero.face, hero.vx, hero.ground, tick, skin);
   ctx.restore();
@@ -832,7 +950,7 @@ function drawSelect() {
     ctx.strokeStyle = sel ? '#ff922b' : '#fff0'; ctx.lineWidth = 6;
     ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 18); ctx.fill(); if (sel) ctx.stroke();
     ctx.save();
-    ctx.translate(r.x + r.w/2, r.y + 92);
+    ctx.translate(r.x + r.w/2, r.y + 84);
     const sc = sel ? 3.3 + Math.sin(tick * 0.1) * 0.12 : 2.8;
     ctx.scale(sc, sc);
     const px = -(CHARS[k].w || 20) / 2;
@@ -844,15 +962,21 @@ function drawSelect() {
   }
   // skin picker
   const sk = SKINS[skin], open = skinUnlocked(skin);
-  text(`◀ ${sk.name} skin ▶`, VW/2, 330, 22, open ? '#fff' : '#adb5bd');
-  text(open ? `Skins unlocked: ${SKINS.filter((s, i) => skinUnlocked(i)).length}/${SKINS.length}`
-            : `🔒 Locked. Beat ${sk.req} level${sk.req > 1 ? 's' : ''} to unlock`, VW/2, 354, 15, open ? '#fff' : '#ffa8a8');
-  text(`◀ Start at level ${startLvl + 1}: ${LEVELS[startLvl].name} ▶`, VW/2, 376, 15, '#fff');
-  if (!isTouch) text('← → or 1-5 hero  ·  ↑ ↓ skin  ·  Q E level  ·  Enter to start', VW/2, 92, 13, '#fff');
+  const lockMsg = n => `🔒 Locked. Beat ${n} level${n > 1 ? 's' : ''} to unlock`;
+  text(`◀ ${sk.name} skin ▶`, VW/2, 300, 20, open ? '#fff' : '#adb5bd');
+  text(open ? `Skins unlocked: ${SKINS.filter((s, i) => skinUnlocked(i)).length}/${SKINS.length}` : lockMsg(sk.req), VW/2, 318, 13, open ? '#fff' : '#ffa8a8');
+  // pet picker
+  const pk = PETS[pet], petOpen = petUnlocked(pet);
+  text(`◀ Pet: ${pk.name} ▶`, VW/2, 338, 20, petOpen ? '#fff' : '#adb5bd');
+  text(pet === 0 ? `Pets unlocked: ${PETS.filter((p, i) => petUnlocked(i)).length - 1}/${PETS.length - 1}`
+                 : petOpen ? pk.perk : `${lockMsg(pk.req)} · ${pk.perk}`, VW/2, 356, 13, petOpen || pet === 0 ? '#fff' : '#ffa8a8');
+  if (pet > 0) { ctx.globalAlpha = petOpen ? 1 : 0.35; drawPet(pk.kind, VW/2 - 150, 354, 1, tick, 1.5, false); ctx.globalAlpha = 1; }
+  text(`◀ Start at level ${startLvl + 1}: ${LEVELS[startLvl].name} ▶`, VW/2, 376, 14, '#fff');
+  if (!isTouch) text('← → or 1-5 hero  ·  ↑ ↓ skin  ·  Z X pet  ·  Q E level  ·  Enter to start', VW/2, 92, 13, '#fff');
   ctx.fillStyle = '#40c057'; ctx.beginPath(); ctx.roundRect(PLAY_BTN.x, PLAY_BTN.y, PLAY_BTN.w, PLAY_BTN.h, 14); ctx.fill();
   ctx.strokeStyle = '#2b8a3e'; ctx.lineWidth = 4; ctx.stroke();
   text('▶ PLAY', VW/2, PLAY_BTN.y + PLAY_BTN.h/2, 22);
-  if (flash > 0) text('That skin is still locked!', VW/2, 304, 20, '#ff6b6b');
+  if (flash > 0) text(flashMsg, VW/2, 292, 20, '#ff6b6b');
 }
 
 function drawHUD() {
