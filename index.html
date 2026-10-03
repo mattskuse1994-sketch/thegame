@@ -44,12 +44,12 @@ const LEVELS = [
     gaps: [[14,16],[28,30],[44,46],[60,62],[74,76]],
     plats: [[6,9,3],[11,8,3],[16,9,2],[20,9,3],[24,7,3],[29,9,3],[34,9,3],[38,7,3],[42,9,2],[46,8,3],[50,6,3],[54,8,3],[58,9,2],[63,9,3],[67,7,3],[71,9,3],[75,8,2],[79,9,3],[83,7,3]],
     extraCoins: [[15,10],[29,10],[45,10],[61,10],[75,10],[4,11],[36,11]],
-    enemies: [9,22,33,40,52,57,66,70,80] },
+    enemies: [9,22,33,52,66,80], snakes: [40,57,70] },
   { name: 'Moonlit Woods', sky: ['#1b2650', '#5b4b8a'], hill: '#2f6b57', W: 100, flag: 96,
     gaps: [[12,14],[24,26],[36,38],[48,50],[60,62],[72,74],[84,86]],
     plats: [[8,9,2],[12,8,3],[17,9,3],[22,7,2],[26,8,3],[31,9,3],[35,7,3],[40,8,2],[45,9,3],[49,7,3],[54,9,2],[58,7,3],[63,8,3],[68,9,2],[72,7,3],[77,9,3],[82,7,2],[86,8,3],[91,9,3]],
     extraCoins: [[13,10],[25,10],[37,10],[49,10],[61,10],[73,10],[85,10]],
-    enemies: [6,19,30,33,43,53,56,66,70,80,90,93] },
+    enemies: [6,19,30,43,53,80,90], snakes: [33,56,70], hedgehogs: [66], spiders: [95] },
 ];
 LEVELS[2].stars = true;
 
@@ -62,29 +62,39 @@ function mulberry32(a) {
 }
 function genLevel(cfg, d, seed) {
   const rnd = mulberry32(seed), R = (a, b) => a + Math.floor(rnd() * (b - a + 1));
-  const L = {...cfg, gaps: [], plats: [], extraCoins: [], enemies: [], spikes: [], espeed: Math.min(2.2, 1 + 0.15 * d)};
+  const L = {...cfg, gaps: [], plats: [], extraCoins: [], enemies: [], snakes: [], spiders: [], hedgehogs: [], spikes: [], bats: [], espeed: Math.min(3.0, 1 + 0.12 * d), batSpeed: Math.min(1.8, 1 + 0.05 * Math.max(0, d - 8))};
   let c = 8, forced = 0;
   while (c < cfg.W - 26) {
     const len = forced || R(Math.max(3, 9 - d), Math.max(5, 12 - d));
     forced = 0;
     const s = c; c += len;
     const spLen = R(1, d >= 4 ? 3 : 2);
-    if (len >= 6 && rnd() < Math.min(0.9, 0.45 + 0.08 * d)) {
-      L.enemies.push(s + (len >> 1));
-    } else if (len >= spLen + 5 && rnd() < 0.25 + 0.07 * d) {
-      L.spikes.push([s + 3, spLen]);
-      for (let i = 0; i < spLen; i++) L.extraCoins.push([s + 3 + i, 9]);
-    } else if (len >= 4 && rnd() < 0.5) {
-      const pl = R(2, 3), pc = s + R(1, len - pl);
+    const sp = len >= spLen + 5 ? 3 : 2;              // spikes sit 2-3 tiles in, with room to land
+    const roll = rnd(), pE = Math.min(0.6, 0.45 + 0.04 * d), pS = Math.min(0.35, 0.1 + 0.03 * d);
+    if (len >= (d >= 6 ? 4 : 6) && roll < pE) {
+      // which baddie lives here: snakes from level 4, spiders from 5, hedgehogs from 6
+      const col = s + (len >> 1), kinds = ['raccoon', 'raccoon'];
+      if (d >= 3) kinds.push('snake', 'snake');
+      if (d >= 4) kinds.push('spider', 'spider');
+      if (d >= 5 && len >= 5) kinds.push('hedgehog');
+      if (d >= 8 && len >= 5) kinds.push('spider', 'hedgehog', 'hedgehog');
+      const kind = kinds[R(0, kinds.length - 1)];
+      (kind === 'snake' ? L.snakes : kind === 'spider' ? L.spiders : kind === 'hedgehog' ? L.hedgehogs : L.enemies).push(col);
+    } else if (len >= sp + spLen + 2 && roll >= pE && roll < pE + pS) {
+      L.spikes.push([s + sp, spLen]);
+      for (let i = 0; i < spLen; i++) L.extraCoins.push([s + sp + i, 9]);
+    } else if (len >= 6 && rnd() < 0.5) {
+      const pl = R(2, 3), pc = s + R(1, len - pl - 2);
       L.plats.push([pc, 9, pl]);
     } else {
       for (let i = 2; i < Math.min(len, 5); i++) L.extraCoins.push([s + i, 11]);
     }
-    const w = rnd() < 0.3 + 0.1 * d ? 3 : 2;
+    const w = rnd() < Math.min(0.9, 0.3 + 0.1 * d) ? 3 : 2;
     L.gaps.push([c, c + w - 1]);
     for (let i = 0; i < w; i++) L.extraCoins.push([c + i, 9]);
+    if (d >= 8 && rnd() < Math.min(0.8, 0.1 * (d - 6))) L.bats.push([c + (w >> 1), 7]);   // bat guarding the gap
     c += w;
-    if (d >= 4 && rnd() < 0.25) forced = 2;   // tiny island, then another gap
+    if (d >= 4 && rnd() < Math.min(0.75, 0.1 * (d - 3))) forced = 2;   // tiny island, then another gap
   }
   return L;
 }
@@ -94,9 +104,17 @@ const THEMES = [
   { name: 'Candy Canyon',  sky: ['#ffc9de', '#fff0f6'], hill: '#f783ac', top: '#ff8fab', dirt: '#a9446b', plat: '#b197fc', platTop: '#d0bfff' },
   { name: 'Volcano Rim',   sky: ['#3b0d0d', '#a63d1a'], hill: '#5c1f12', top: '#e8590c', dirt: '#3d2b2b', plat: '#5a4a4a', platTop: '#868e96', stars: true },
   { name: 'Storm Castle',  sky: ['#343a40', '#868e96'], hill: '#495057', top: '#adb5bd', dirt: '#495057', plat: '#6c757d', platTop: '#ced4da' },
+  { name: 'Cloud Kingdom', sky: ['#4dabf7', '#e7f5ff'], hill: '#ffffff', top: '#f1f3f5', dirt: '#adb5bd', plat: '#dee2e6', platTop: '#ffffff' },
+  { name: 'Crystal Caves', sky: ['#0b132b', '#1c2541'], hill: '#3a506b', top: '#5bc0be', dirt: '#1c2541', plat: '#3a506b', platTop: '#6fffe9', stars: true },
+  { name: 'Jungle Ruins',  sky: ['#a9e34b', '#f4fce3'], hill: '#2b8a3e', top: '#37b24d', dirt: '#5c3d1e', plat: '#8d6e3f', platTop: '#b8975a' },
+  { name: 'Pirate Cove',   sky: ['#74c0fc', '#fff3bf'], hill: '#1c7ed6', top: '#e9c46a', dirt: '#a47148', plat: '#6f4e37', platTop: '#a47148' },
+  { name: 'Toxic Swamp',   sky: ['#3b5d3a', '#a3b18a'], hill: '#344e41', top: '#7cb518', dirt: '#3a2e2a', plat: '#556b2f', platTop: '#8fb339' },
+  { name: 'Neon City',     sky: ['#10002b', '#3c096c'], hill: '#240046', top: '#f72585', dirt: '#240046', plat: '#7209b7', platTop: '#f72585', stars: true },
+  { name: 'Haunted Hollow', sky: ['#1a1a2e', '#4a4e69'], hill: '#22223b', top: '#6c757d', dirt: '#2b2d42', plat: '#4a4e69', platTop: '#9a8c98', stars: true },
+  { name: "Dragon's Peak", sky: ['#ff6b6b', '#ffd6a5'], hill: '#7b2d26', top: '#c0392b', dirt: '#4a1c18', plat: '#6b2d2d', platTop: '#e07a5f' },
 ];
 THEMES.forEach((t, i) => {
-  const d = i + 2, Wd = 100 + 10 * i;
+  const d = i + 3, Wd = Math.min(190, 100 + 8 * i);
   LEVELS.push(genLevel({...t, W: Wd, flag: Wd - 5}, d, 1000 + 77 * i));
 });
 
@@ -135,7 +153,25 @@ const SKINS = [
   { name: 'Ninja',    req: 5, boy: ['#343a40', '#212529'], girl: ['#495057', '#343a40'], extra: 'headband' },
   { name: 'Hero',     req: 7, boy: ['#1971c2', '#e03131'], girl: ['#7048e8', '#e03131'], extra: 'cape' },
   { name: 'Champion', req: 8, boy: ['#fcc419', '#f08c00'], girl: ['#ffd43b', '#f59f00'], extra: 'crown' },
+  { name: 'Pirate',    req: 9,  boy: ['#f1f3f5', '#364fc7'], girl: ['#f1f3f5', '#c2255c'], extra: 'bandana' },
+  { name: 'Astronaut', req: 10, boy: ['#f8f9fa', '#adb5bd'], girl: ['#f8f9fa', '#ced4da'], extra: 'helmet' },
+  { name: 'Wizard',    req: 12, boy: ['#7048e8', '#5f3dc4'], girl: ['#9775fa', '#7048e8'], extra: 'wizard' },
+  { name: 'Robot',     req: 13, boy: ['#868e96', '#495057'], girl: ['#adb5bd', '#6c757d'], extra: 'antenna' },
+  { name: 'Dragon',    req: 14, boy: ['#e8590c', '#c92a2a'], girl: ['#ff922b', '#e03131'], extra: 'horns' },
+  { name: 'Rainbow',   req: 16, boy: ['rainbow', 'rainbow'], girl: ['rainbow', 'rainbow'], extra: 'halo' },
 ];
+
+// Power-up items floating in the levels
+const ITEM_TYPES = ['heart', 'shield', 'boots', 'feather', 'star'];
+const ITEM_WEIGHTS = [0.2, 0.25, 0.2, 0.2, 0.15];
+const ITEM_INFO = {
+  heart:   {color: '#ff6b6b', label: 'Extra life'},
+  shield:  {color: '#4dabf7', label: 'Shield'},
+  boots:   {color: '#51cf66', label: 'Super jump'},
+  feather: {color: '#e599f7', label: 'Double jump'},
+  star:    {color: '#ffd43b', label: 'Invincible'},
+};
+const POWER_FRAMES = {star: 480, boots: 900, feather: 900};
 const SAVE_KEY = 'jesse-izzy-hop';
 let save = {cleared: 0, skin: 0, char: 'jesse'};
 try { Object.assign(save, JSON.parse(localStorage.getItem(SAVE_KEY)) || {}); } catch (e) {}
@@ -147,15 +183,52 @@ let state = 'select';           // select | play | dead | clear | win | over
 let choice = CHARS[save.char] ? save.char : 'jesse';
 let skin = SKINS[save.skin] && skinUnlocked(save.skin) ? save.skin : 0;
 let startLvl = 0, flash = 0, unlockMsg = '';
-let hero, enemies, coins, camX, score, lives, timeLeft, stateTimer = 0, tick = 0;
+let hero, enemies, coins, items, camX, score, lives, timeLeft, stateTimer = 0, tick = 0;
 const keys = {};
 const pressed = {};
 
+// Scatter power-ups over platforms and the ground; later levels get fewer of them.
+function placeItems(n) {
+  const rnd = mulberry32(5000 + n * 31);
+  const pool = [];
+  for (let c = 6; c < W - 8; c++) {
+    for (let r = 4; r <= 10; r++) if (grid[r][c] === '=' && grid[r-1][c] === ' ') pool.push([c, r - 1]);
+    if ([-2, -1, 0, 1, 2].every(k => grid[12][c + k] === '#' && grid[11][c + k] === ' ') && c % 2 === 0) pool.push([c, 11]);
+  }
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  const want = Math.max(3, Math.min(8, Math.round(W / 24) - Math.floor(n / 5)));
+  const picked = [];
+  for (const p of pool) {
+    if (picked.length >= want) break;
+    if (picked.every(q => Math.abs(q[0] - p[0]) >= 10)) picked.push(p);
+  }
+  return picked.map(([c, r]) => {
+    let roll = rnd(), type = ITEM_TYPES[ITEM_TYPES.length - 1];
+    for (let i = 0; i < ITEM_TYPES.length; i++) { roll -= ITEM_WEIGHTS[i]; if (roll < 0) { type = ITEM_TYPES[i]; break; } }
+    return {c, r, x: c*T + 16, y: r*T + 16, type, got: false};
+  });
+}
+function applyItem(type) {
+  const h = hero;
+  score += 25;
+  if (type === 'heart') lives = Math.min(lives + 1, 9);
+  else if (type === 'shield') h.shield = true;
+  else h[type] = POWER_FRAMES[type];
+}
+
 function resetLevel() {
   const spots = buildLevel(lvl);
-  hero = {x: 2*T, y: 12*T - 28, w: CHARS[choice].w || 20, h: 28, vx: 0, vy: 0, face: 1, ground: false, coyote: 0, buf: 0, inv: 0};
-  enemies = LEVELS[lvl].enemies.map(c => ({x: c*T, y: 12*T - 20, w: 24, h: 20, vx: -theme.espeed, alive: true, squash: 0}));
-  coins = spots.map(([c, r]) => ({x: c*T + 16, y: r*T + 16, got: false}));
+  const L = LEVELS[lvl];
+  hero = {x: 2*T, y: 12*T - 28, w: CHARS[choice].w || 20, h: 28, vx: 0, vy: 0, face: 1, ground: false, coyote: 0, buf: 0, inv: 0,
+          star: 0, boots: 0, feather: 0, shield: false, air2: true};
+  enemies = L.enemies.map(c => ({type: 'raccoon', x: c*T, y: 12*T - 20, w: 24, h: 20, vx: -theme.espeed, alive: true, squash: 0}));
+  const sp = theme.espeed;
+  for (const c of L.snakes || []) enemies.push({type: 'snake', x: c*T, y: 12*T - 14, w: 28, h: 14, vx: -1, base: Math.max(0.6, 0.55 * sp), ph: c, alive: true, squash: 0});
+  for (const c of L.hedgehogs || []) enemies.push({type: 'hedgehog', spiky: true, x: c*T, y: 12*T - 20, w: 26, h: 20, vx: -Math.max(0.5, 0.5 * sp), alive: true, squash: 0});
+  for (const c of L.spiders || []) enemies.push({type: 'spider', x: c*T + 5, y: 6*T, y0: 6*T, yLow: 12*T - 18, w: 22, h: 18, vx: 0, ph: c, alive: true, squash: 0});
+  for (const [c, r] of L.bats || []) enemies.push({type: 'bat', x: c*T, x0: c*T, y: r*T + 16, y0: r*T + 16, w: 24, h: 14, vx: 0, alive: true, squash: 0, ph: c, sp: L.batSpeed || 1});
+  items = placeItems(lvl);
+  coins = spots.filter(([c, r]) => !items.some(it => it.c === c && it.r === r)).map(([c, r]) => ({x: c*T + 16, y: r*T + 16, got: false}));
   camX = 0;
 }
 function newGame() {
@@ -339,7 +412,14 @@ function update() {
   if (jumpPressed) h.buf = 6;
   h.coyote = h.ground ? 6 : h.coyote - 1;
   h.buf--;
-  if (h.buf > 0 && h.coyote > 0) { h.vy = -11.5; h.buf = 0; h.coyote = 0; h.ground = false; }
+  if (h.star > 0) h.star--;
+  if (h.boots > 0) h.boots--;
+  if (h.feather > 0) h.feather--;
+  if (h.ground) h.air2 = true;
+  if (h.buf > 0 && h.coyote > 0) { h.vy = h.boots > 0 ? -14.5 : -11.5; h.buf = 0; h.coyote = 0; h.ground = false; }
+  else if (jumpPressed && h.feather > 0 && h.air2 && !h.ground && h.coyote <= 0) {   // feather: one extra jump in the air
+    h.vy = h.boots > 0 ? -13 : -10.5; h.air2 = false; h.buf = 0;
+  }
   if (!jumpHeld && h.vy < -4) h.vy = -4;       // variable jump height
   h.vy = Math.min(h.vy + 0.6, 14);
 
@@ -352,17 +432,36 @@ function update() {
   // coins
   for (const c of coins) if (!c.got && Math.hypot(c.x - (h.x + h.w/2), c.y - (h.y + h.h/2)) < 22) { c.got = true; score += 10; }
 
+  // power-ups
+  for (const it of items) if (!it.got && Math.hypot(it.x - (h.x + h.w/2), it.y - (h.y + h.h/2)) < 24) { it.got = true; applyItem(it.type); }
+
   // enemies
   for (const e of enemies) {
     if (!e.alive) { if (e.squash > 0) e.squash--; continue; }
-    const ahead = e.x + (e.vx > 0 ? e.w + 1 : -1);
-    const footC = Math.floor(ahead / T), footR = Math.floor((e.y + e.h + 2) / T);
-    const wallR = solid(footC, Math.floor((e.y + e.h/2) / T));
-    if (!solid(footC, footR) || wallR) e.vx *= -1;
-    e.x += e.vx;
+    if (e.type === 'bat') {
+      e.x = e.x0 + Math.sin(tick * 0.04 * e.sp + e.ph) * 48;
+      e.y = e.y0 + Math.sin(tick * 0.09 * e.sp + e.ph) * 18;
+      e.vx = Math.cos(tick * 0.04 * e.sp + e.ph);
+    } else if (e.type === 'spider') {
+      e.y = e.y0 + (e.yLow - e.y0) * (0.5 - 0.5 * Math.cos(tick * 0.03 + e.ph));   // dangles up and down on its thread
+    } else {
+      if (e.type === 'snake') {                           // slithers, then lunges
+        const lunge = (tick + e.ph * 17) % 150 < 25;
+        e.vx = (e.vx < 0 ? -1 : 1) * Math.min(3.2, e.base * (lunge ? 2.8 : 1));
+      }
+      const ahead = e.x + (e.vx > 0 ? e.w + 1 : -1);
+      const footC = Math.floor(ahead / T), footR = Math.floor((e.y + e.h + 2) / T);
+      const wallR = solid(footC, Math.floor((e.y + e.h/2) / T));
+      if (!solid(footC, footR) || wallR) e.vx *= -1;
+      e.x += e.vx;
+    }
     if (h.x < e.x + e.w && h.x + h.w > e.x && h.y < e.y + e.h && h.y + h.h > e.y) {
-      if (h.vy > 0 && h.y + h.h - e.y < 16) { e.alive = false; e.squash = 20; h.vy = -8; score += 50; }
-      else if (h.inv <= 0) { loseLife(); return; }
+      if (h.star > 0) { e.alive = false; e.squash = 20; score += 50; }
+      else if (h.vy > 0 && h.y + h.h - e.y < 16 && !e.spiky) { e.alive = false; e.squash = 20; h.vy = -8; score += 50; }
+      else if (h.inv <= 0) {
+        if (h.shield) { h.shield = false; h.inv = 90; }     // the shield pops instead of you
+        else { loseLife(); return; }
+      }
     }
   }
 
@@ -370,8 +469,11 @@ function update() {
   // spikes
   for (let r = Math.floor(h.y / T); r <= Math.floor((h.y + h.h - 0.01) / T); r++)
     for (let c = Math.floor(h.x / T); c <= Math.floor((h.x + h.w - 0.01) / T); c++)
-      if (grid[r] && grid[r][c] === '^' &&
-          h.x < c*T + 26 && h.x + h.w > c*T + 6 && h.y + h.h > r*T + 14) { loseLife(); return; }
+      if (grid[r] && grid[r][c] === '^' && h.star <= 0 && h.inv <= 0 &&
+          h.x < c*T + 26 && h.x + h.w > c*T + 6 && h.y + h.h > r*T + 14) {
+        if (h.shield) { h.shield = false; h.inv = 90; h.vy = -9; }   // shield pops and bounces you clear
+        else { loseLife(); return; }
+      }
 
   if (h.x + h.w > FLAG_C * T) { finishLevel(); return; }
 
@@ -391,7 +493,9 @@ function drawHero(x, y, charId, face, vx, ground, t, skinIdx = 0) {
   const run = ground && Math.abs(vx) > 0.5;
   const step = run ? Math.sin(t * 0.35) * 4 : 0;
   const skin = '#ffd2a8';
-  const sk = SKINS[skinIdx], [top, bot] = sk[kind];
+  const sk = SKINS[skinIdx];
+  let [top, bot] = sk[kind];
+  if (top === 'rainbow') { top = `hsl(${(t * 5) % 360},85%,55%)`; bot = `hsl(${(t * 5 + 140) % 360},85%,45%)`; }
   const rect = (c, a, b, w, h) => { ctx.fillStyle = c; ctx.fillRect(a, b, w, h); };
   if (sk.extra === 'cape') {                   // behind the body
     const fl = ground ? Math.abs(vx) * 3 : 8 + Math.sin(t * 0.4) * 3;
@@ -463,6 +567,23 @@ function drawHero(x, y, charId, face, vx, ground, t, skinIdx = 0) {
     ctx.beginPath(); ctx.moveTo(-7, -9); ctx.lineTo(-7, -16); ctx.lineTo(-3, -12); ctx.lineTo(0, -17); ctx.lineTo(3, -12); ctx.lineTo(7, -16); ctx.lineTo(7, -9); ctx.fill();
     rect('#e03131', -1, -13, 2, 2);
   }
+  if (sk.extra === 'bandana') { rect('#c92a2a', -8, -9, 16, 4); rect('#c92a2a', -12, -8 + (ground ? 0 : -2), 5, 3); rect('#fff', -3, -8, 2, 2); }
+  if (sk.extra === 'helmet') {
+    ctx.fillStyle = '#a5d8ff55'; ctx.beginPath(); ctx.arc(0, -1, 11, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#e9ecef'; ctx.lineWidth = 2; ctx.stroke();
+    rect('#e9ecef', -9, 6, 18, 2);
+  }
+  if (sk.extra === 'wizard') {
+    ctx.fillStyle = top; ctx.beginPath(); ctx.moveTo(-10, -8); ctx.lineTo(1, -27); ctx.lineTo(10, -8); ctx.fill();
+    rect('#5f3dc4', -12, -10, 24, 3); rect('#ffd43b', 0, -17, 3, 3);
+  }
+  if (sk.extra === 'antenna') { rect('#868e96', -1, -15, 2, 8); ctx.fillStyle = '#ff6b6b'; ctx.beginPath(); ctx.arc(0, -16, 3, 0, 7); ctx.fill(); }
+  if (sk.extra === 'horns') {
+    ctx.fillStyle = '#f1f3f5';
+    ctx.beginPath(); ctx.moveTo(-7, -8); ctx.lineTo(-10, -16); ctx.lineTo(-3, -8); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(3, -8); ctx.lineTo(8, -16); ctx.lineTo(7, -8); ctx.fill();
+  }
+  if (sk.extra === 'halo') { ctx.strokeStyle = '#ffd43b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, -15 + Math.sin(t * 0.1), 8, 3, 0, 0, 7); ctx.stroke(); }
   if (ch.pram) { ctx.restore(); drawPram(top, t, Math.abs(vx) > 0.5 && ground); }
   ctx.restore();
 }
@@ -517,6 +638,93 @@ function drawRaccoon(x, y, dir, t) {
   ctx.restore();
 }
 
+function drawItem(type, x, y, r, t) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.45 + 0.2 * Math.sin(t * 0.1);
+  ctx.beginPath(); ctx.arc(0, 0, r + 5, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.fillStyle = ITEM_INFO[type].color; ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.scale(r / 12, r / 12);
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff';
+  if (type === 'heart') {
+    ctx.beginPath(); ctx.moveTo(0, 6); ctx.bezierCurveTo(-10, -1, -6, -9, 0, -3); ctx.bezierCurveTo(6, -9, 10, -1, 0, 6); ctx.fill();
+  } else if (type === 'star') {
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rad = i % 2 ? 3 : 7; ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad); }
+    ctx.closePath(); ctx.fill();
+  } else if (type === 'shield') {
+    ctx.beginPath(); ctx.moveTo(-5, -6); ctx.lineTo(5, -6); ctx.lineTo(5, 0); ctx.quadraticCurveTo(5, 6, 0, 8); ctx.quadraticCurveTo(-5, 6, -5, 0); ctx.closePath(); ctx.fill();
+  } else if (type === 'boots') {
+    ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(6, 0); ctx.lineTo(2, 0); ctx.lineTo(2, 6); ctx.lineTo(-2, 6); ctx.lineTo(-2, 0); ctx.lineTo(-6, 0); ctx.closePath(); ctx.fill();
+  } else {                                           // feather: double chevron
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(-5, -1); ctx.lineTo(0, -6); ctx.lineTo(5, -1); ctx.moveTo(-5, 6); ctx.lineTo(0, 1); ctx.lineTo(5, 6); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSnake(e) {
+  const dir = e.vx > 0 ? 1 : -1;
+  ctx.save(); ctx.translate(Math.round(e.x + e.w/2), Math.round(e.y + e.h)); ctx.scale(dir, 1);
+  for (let i = 0; i < 7; i++) {                       // wavy body, thinner towards the tail
+    const bx = -12 + i * 4, by = -5 + Math.sin(tick * 0.3 + i * 0.9) * 2.5, r = 2.5 + i * 0.35;
+    ctx.fillStyle = i % 2 ? '#2f9e44' : '#51cf66'; ctx.beginPath(); ctx.arc(bx, by, r, 0, 7); ctx.fill();
+  }
+  ctx.fillStyle = '#51cf66'; ctx.beginPath(); ctx.ellipse(13, -7, 6, 5, 0, 0, 7); ctx.fill();   // head
+  ctx.fillStyle = '#fff'; ctx.fillRect(13, -10, 3, 3); ctx.fillStyle = '#111'; ctx.fillRect(15, -9, 1.5, 2);
+  ctx.strokeStyle = '#e03131'; ctx.lineWidth = 1.5;                                          // tongue
+  ctx.beginPath(); ctx.moveTo(18, -6); ctx.lineTo(23, -6); ctx.moveTo(23, -6); ctx.lineTo(25, -8); ctx.moveTo(23, -6); ctx.lineTo(25, -4); ctx.stroke();
+  ctx.restore();
+}
+
+function drawSpider(e) {
+  const cx = e.x + e.w/2, cy = e.y + e.h/2;
+  ctx.strokeStyle = '#ffffffaa'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, cy - 6); ctx.stroke();                   // thread
+  ctx.save(); ctx.translate(Math.round(cx), Math.round(cy));
+  const wig = Math.sin(tick * 0.3 + e.ph) * 2;
+  ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
+  for (let i = 0; i < 4; i++) for (const s of [-1, 1]) {                                     // 8 legs
+    const a = (i - 1.5) * 0.45;
+    ctx.beginPath(); ctx.moveTo(s * 4, 0);
+    ctx.lineTo(s * (11 + i), -6 + i * 3 + a * 4 + wig * (i % 2 ? 1 : -1));
+    ctx.lineTo(s * (13 + i), 4 + i * 2); ctx.stroke();
+  }
+  ctx.fillStyle = '#2b2b33'; ctx.beginPath(); ctx.ellipse(0, 2, 8, 7, 0, 0, 7); ctx.fill();   // body
+  ctx.beginPath(); ctx.arc(0, -5, 5, 0, 7); ctx.fill();                                      // head
+  ctx.fillStyle = '#ff6b6b'; ctx.fillRect(-3, -7, 2, 2); ctx.fillRect(1, -7, 2, 2);
+  ctx.fillStyle = '#e03131'; ctx.beginPath(); ctx.arc(0, 4, 2, 0, 7); ctx.fill();            // red mark
+  ctx.restore();
+}
+
+function drawHedgehog(e) {
+  const dir = e.vx > 0 ? 1 : -1;
+  ctx.save(); ctx.translate(Math.round(e.x + e.w/2), Math.round(e.y + e.h)); ctx.scale(dir, 1);
+  const s = Math.sin(tick * 0.3 + e.x) * 1.5;
+  ctx.fillStyle = '#3a2b22'; ctx.fillRect(-7 + s, -4, 4, 4); ctx.fillRect(3 - s, -4, 4, 4);   // feet
+  ctx.fillStyle = '#6f4e37'; ctx.beginPath(); ctx.ellipse(-2, -9, 11, 8, 0, 0, 7); ctx.fill();   // body
+  ctx.fillStyle = '#2b1d14';                                                                    // spines
+  for (let i = 0; i < 7; i++) {
+    const a = Math.PI + i * (Math.PI * 0.8) / 6 - 0.1, bx = -2 + Math.cos(a) * 10, by = -9 + Math.sin(a) * 7;
+    ctx.beginPath(); ctx.moveTo(bx - 2, by + 2); ctx.lineTo(bx + Math.cos(a) * 6, by + Math.sin(a) * 6); ctx.lineTo(bx + 2, by + 2); ctx.fill();
+  }
+  ctx.fillStyle = '#e6c9a8'; ctx.beginPath(); ctx.ellipse(9, -7, 5, 4, 0, 0, 7); ctx.fill();   // face
+  ctx.fillStyle = '#111'; ctx.fillRect(10, -9, 2, 2); ctx.beginPath(); ctx.arc(13.5, -7, 1.6, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+function drawBat(e) {
+  const cx = e.x + e.w/2, cy = e.y + e.h/2, flap = Math.sin(tick * 0.45 + e.ph) * 7;
+  ctx.save(); ctx.translate(Math.round(cx), Math.round(cy));
+  ctx.fillStyle = '#4c3a7a';
+  ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(-17, -6 - flap); ctx.lineTo(-13, 4); ctx.lineTo(-8, 2); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(17, -6 - flap); ctx.lineTo(13, 4); ctx.lineTo(8, 2); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#2d2250'; ctx.beginPath(); ctx.ellipse(0, 1, 6, 7, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-5, -4); ctx.lineTo(-4, -10); ctx.lineTo(-1, -5); ctx.moveTo(5, -4); ctx.lineTo(4, -10); ctx.lineTo(1, -5); ctx.fill();
+  ctx.fillStyle = '#ff6b6b'; ctx.fillRect(-4, -1, 2, 2); ctx.fillRect(2, -1, 2, 2);
+  ctx.restore();
+}
+
 function drawBackground() {
   const g = ctx.createLinearGradient(0, 0, 0, VH);
   g.addColorStop(0, theme.sky[0]); g.addColorStop(1, theme.sky[1]);
@@ -563,7 +771,8 @@ function drawWorld() {
   // flag
   const fx = FLAG_C * T;
   ctx.fillStyle = '#eee'; ctx.fillRect(fx + 14, 12*T - 150, 4, 150);
-  ctx.fillStyle = SKINS[skin][CHARS[choice].kind][0];
+  const flagCol = SKINS[skin][CHARS[choice].kind][0];
+  ctx.fillStyle = flagCol === 'rainbow' ? `hsl(${(tick * 5) % 360},85%,55%)` : flagCol;
   ctx.beginPath(); ctx.moveTo(fx + 18, 12*T - 150); ctx.lineTo(fx + 58, 12*T - 132); ctx.lineTo(fx + 18, 12*T - 114); ctx.fill();
   // coins
   for (const c of coins) if (!c.got) {
@@ -571,13 +780,31 @@ function drawWorld() {
     ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.ellipse(c.x, c.y + Math.sin(tick*0.1 + c.x)*2, 8 * Math.max(0.25, w), 9, 0, 0, 7); ctx.fill();
     ctx.strokeStyle = '#e67700'; ctx.lineWidth = 2; ctx.stroke();
   }
+  // power-ups
+  for (const it of items) if (!it.got) drawItem(it.type, it.x, it.y + Math.sin(tick * 0.08 + it.c) * 3, 12, tick);
   // enemies
   for (const e of enemies) {
     if (!e.alive) {
-      if (e.squash > 0) { ctx.fillStyle = '#8d8d94'; ctx.beginPath(); ctx.ellipse(e.x + e.w/2, e.y + e.h - 3, 15, 3, 0, 0, 7); ctx.fill(); }
+      if (e.squash > 0 && e.type !== 'bat' && e.type !== 'spider') { ctx.fillStyle = '#8d8d94'; ctx.beginPath(); ctx.ellipse(e.x + e.w/2, e.y + e.h - 3, 15, 3, 0, 0, 7); ctx.fill(); }
       continue;
     }
-    drawRaccoon(e.x + e.w/2, e.y + e.h, e.vx > 0 ? 1 : -1, tick + e.x);
+    if (e.type === 'bat') drawBat(e);
+    else if (e.type === 'snake') drawSnake(e);
+    else if (e.type === 'spider') drawSpider(e);
+    else if (e.type === 'hedgehog') drawHedgehog(e);
+    else drawRaccoon(e.x + e.w/2, e.y + e.h, e.vx > 0 ? 1 : -1, tick + e.x);
+  }
+  // power-up effects around the hero
+  if (state !== 'dead') {
+    const cx = hero.x + hero.w/2, cy = hero.y + hero.h/2 - 4;
+    if (hero.star > 0 && (hero.star > 90 || tick % 8 < 5)) {
+      ctx.fillStyle = `hsla(${(tick * 12) % 360},90%,60%,0.4)`; ctx.beginPath(); ctx.arc(cx, cy, 30, 0, 7); ctx.fill();
+    }
+    if (hero.shield) {
+      ctx.fillStyle = '#74c0fc33'; ctx.strokeStyle = '#74c0fcdd'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, 27, 0, 7); ctx.fill(); ctx.stroke();
+    }
+    if (hero.boots > 0) { ctx.fillStyle = '#51cf66aa'; ctx.beginPath(); ctx.ellipse(cx, hero.y + hero.h + 1, hero.w/2 + 4, 3, 0, 0, 7); ctx.fill(); }
   }
   // hero
   if (state !== 'dead' || stateTimer % 4 < 3) drawHero(hero.x, hero.y, choice, hero.face, hero.vx, hero.ground, tick, skin);
@@ -596,8 +823,8 @@ function drawSelect() {
   ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
   ctx.fillStyle = '#4caf50'; ctx.fillRect(0, 400, VW, 48);
   ctx.fillStyle = '#8a5a35'; ctx.fillRect(0, 412, VW, 36);
-  text('SUNNY HOP', VW/2, 46, 44, '#ffd43b');
-  text('Choose your hero!', VW/2, 86, 20);
+  text('SUNNY HOP', VW/2, 36, 44, '#ffd43b');
+  text('Choose your hero!', VW/2, 70, 20);
   const cr = cardRects();
   for (const k of CHAR_IDS) {
     const r = cr[k], sel = choice === k;
@@ -621,7 +848,7 @@ function drawSelect() {
   text(open ? `Skins unlocked: ${SKINS.filter((s, i) => skinUnlocked(i)).length}/${SKINS.length}`
             : `🔒 Locked. Beat ${sk.req} level${sk.req > 1 ? 's' : ''} to unlock`, VW/2, 354, 15, open ? '#fff' : '#ffa8a8');
   text(`◀ Start at level ${startLvl + 1}: ${LEVELS[startLvl].name} ▶`, VW/2, 376, 15, '#fff');
-  if (!isTouch) text('← → or 1-5 hero  ·  ↑ ↓ skin  ·  Q E level  ·  Enter to start', VW/2, 102, 13, '#fff');
+  if (!isTouch) text('← → or 1-5 hero  ·  ↑ ↓ skin  ·  Q E level  ·  Enter to start', VW/2, 92, 13, '#fff');
   ctx.fillStyle = '#40c057'; ctx.beginPath(); ctx.roundRect(PLAY_BTN.x, PLAY_BTN.y, PLAY_BTN.w, PLAY_BTN.h, 14); ctx.fill();
   ctx.strokeStyle = '#2b8a3e'; ctx.lineWidth = 4; ctx.stroke();
   text('▶ PLAY', VW/2, PLAY_BTN.y + PLAY_BTN.h/2, 22);
@@ -632,6 +859,16 @@ function drawHUD() {
   text('Score ' + score, 16, 22, 20, '#fff', 'left');
   text(`${NAMES[choice]} · Level ${lvl + 1}/${LEVELS.length}: ${theme.name}`, VW/2, 40, 14);
   text('Lives ' + '♥'.repeat(Math.max(lives, 0)), VW - 16, 22, 20, '#ff6b6b', 'right');
+  // active power-ups
+  let px = 16;
+  for (const k of ['star', 'boots', 'feather']) {
+    if (hero[k] > 0) {
+      drawItem(k, px + 12, 54, 11, tick);
+      text(Math.ceil(hero[k] / 60) + 's', px + 28, 54, 14, '#fff', 'left');
+      px += 72;
+    }
+  }
+  if (hero.shield) drawItem('shield', px + 12, 54, 11, tick);
   const p = Math.min(1, hero.x / (FLAG_C * T));
   ctx.fillStyle = '#0005'; ctx.fillRect(VW/2 - 100, 14, 200, 8);
   ctx.fillStyle = '#ffd43b'; ctx.fillRect(VW/2 - 100, 14, 200 * p, 8);
