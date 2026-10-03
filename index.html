@@ -53,33 +53,70 @@ const LEVELS = [
 ];
 LEVELS[2].stars = true;
 
-// Levels 4-8 are generated from a fixed seed, so they are the same every time.
-// Difficulty (d) rises each level: shorter safe runs, wider gaps, 2-tile islands,
-// more spikes, more and faster raccoons. Every gap is at most 3 tiles wide, so
-// the ground route is always jumpable.
+// Levels 4-100 are generated from fixed seeds, so they are the same every time.
+// Difficulty rises with the level number: shorter safe runs, wider holes, tiny islands,
+// more and faster baddies and, later on, big holes that need a moving, crumbling or
+// blinking platform to cross. Ordinary holes are never wider than 3 tiles, so the ground
+// route is always jumpable. A bonus level follows every 10th level.
 function mulberry32(a) {
   return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 }
-function genLevel(cfg, d, seed) {
+function genLevel(cfg, n, seed) {
+  const d = Math.min(14, 2 + 0.2 * n);
   const rnd = mulberry32(seed), R = (a, b) => a + Math.floor(rnd() * (b - a + 1));
-  const L = {...cfg, gaps: [], plats: [], extraCoins: [], enemies: [], snakes: [], spiders: [], hedgehogs: [], spikes: [], bats: [], espeed: Math.min(3.0, 1 + 0.12 * d), batSpeed: Math.min(1.8, 1 + 0.05 * Math.max(0, d - 8))};
+  const L = {...cfg, num: n, gaps: [], plats: [], extraCoins: [], enemies: [], snakes: [], spiders: [], hedgehogs: [], spikes: [], bats: [], dyn: [],
+             espeed: Math.min(3.2, 1.2 + 0.03 * n), batSpeed: Math.min(1.9, 1 + 0.012 * Math.max(0, n - 20))};
+  const pBig = n < 15 ? 0 : Math.min(0.4, 0.03 + 0.006 * (n - 15));
+  const bigKinds = ['move']; if (n >= 22) bigKinds.push('crumble'); if (n >= 32) bigKinds.push('blink');
+
+  // A big hole with moving / crumbling / blinking platforms to cross it; returns its width.
+  function placeBig(c0) {
+    const kind = bigKinds[R(0, bigKinds.length - 1)];
+    if (kind === 'move') {                                  // one platform shuttles across
+      const w = R(6, 9);
+      L.gaps.push([c0, c0 + w - 1]);
+      L.dyn.push({type: 'move', c0: c0 - 1, c1: c0 + w - 2, r: 12, wTiles: 3, sp: Math.min(0.05, 0.025 + 0.0003 * n)});
+      for (let i = 1; i < w - 1; i += 2) L.extraCoins.push([c0 + i, 9]);
+      return w;
+    }
+    const st = R(1, n >= 85 ? 3 : n >= 60 ? 2 : 1);
+    if (kind === 'crumble') {                               // stepping stones that fall away
+      const w = 4 * st + 2;
+      L.gaps.push([c0, c0 + w - 1]);
+      for (let i = 0; i < st; i++) {
+        L.dyn.push({type: 'crumble', c: c0 + 2 + 4 * i, r: 12, wTiles: 2});
+        L.extraCoins.push([c0 + 2 + 4 * i, 10], [c0 + 3 + 4 * i, 10]);
+      }
+      return w;
+    }
+    const w = 5 * st + 2;                                   // platforms that blink in and out
+    L.gaps.push([c0, c0 + w - 1]);
+    for (let i = 0; i < st; i++) {
+      L.dyn.push({type: 'blink', c: c0 + 2 + 5 * i, r: 12, wTiles: 3, ph: (240 - 80 * i) % 240});
+      L.extraCoins.push([c0 + 3 + 5 * i, 10]);
+    }
+    return w;
+  }
+
   let c = 8, forced = 0;
   while (c < cfg.W - 26) {
-    const len = forced || R(Math.max(3, 9 - d), Math.max(5, 12 - d));
+    const lo = Math.max(3, Math.round(9 - d)), hi = Math.max(5, Math.round(12 - d));
+    const len = forced || R(lo, hi);
     forced = 0;
     const s = c; c += len;
-    const spLen = R(1, d >= 4 ? 3 : 2);
+    const spLen = R(1, n >= 25 ? 3 : 2);
     const sp = len >= spLen + 5 ? 3 : 2;              // spikes sit 2-3 tiles in, with room to land
     const roll = rnd(), pE = Math.min(0.6, 0.45 + 0.04 * d), pS = Math.min(0.35, 0.1 + 0.03 * d);
-    if (len >= (d >= 6 ? 4 : 6) && roll < pE) {
-      // which baddie lives here: snakes from level 4, spiders from 5, hedgehogs from 6
+    if (len >= (n >= 20 ? 4 : 6) && roll < pE) {
+      // which baddie lives here: snakes from level 5, spiders from 9, hedgehogs from 14
       const col = s + (len >> 1), kinds = ['raccoon', 'raccoon'];
-      if (d >= 3) kinds.push('snake', 'snake');
-      if (d >= 4) kinds.push('spider', 'spider');
-      if (d >= 5 && len >= 5) kinds.push('hedgehog');
-      if (d >= 8 && len >= 5) kinds.push('spider', 'hedgehog', 'hedgehog');
+      if (n >= 5) kinds.push('snake', 'snake');
+      if (n >= 9) kinds.push('spider', 'spider');
+      if (n >= 14 && len >= 5) kinds.push('hedgehog');
+      if (n >= 30 && len >= 5) kinds.push('spider', 'hedgehog', 'hedgehog');
       const kind = kinds[R(0, kinds.length - 1)];
       (kind === 'snake' ? L.snakes : kind === 'spider' ? L.spiders : kind === 'hedgehog' ? L.hedgehogs : L.enemies).push(col);
+      if (len >= 9 && rnd() < Math.min(0.6, Math.max(0, (n - 35) / 100))) L.enemies.push(s + len - 3);   // a second one in long runs
     } else if (len >= sp + spLen + 2 && roll >= pE && roll < pE + pS) {
       L.spikes.push([s + sp, spLen]);
       for (let i = 0; i < spLen; i++) L.extraCoins.push([s + sp + i, 9]);
@@ -89,16 +126,47 @@ function genLevel(cfg, d, seed) {
     } else {
       for (let i = 2; i < Math.min(len, 5); i++) L.extraCoins.push([s + i, 11]);
     }
-    const w = rnd() < Math.min(0.9, 0.3 + 0.1 * d) ? 3 : 2;
-    L.gaps.push([c, c + w - 1]);
-    for (let i = 0; i < w; i++) L.extraCoins.push([c + i, 9]);
-    if (d >= 8 && rnd() < Math.min(0.8, 0.1 * (d - 6))) L.bats.push([c + (w >> 1), 7]);   // bat guarding the gap
-    c += w;
-    if (d >= 4 && rnd() < Math.min(0.75, 0.1 * (d - 3))) forced = 2;   // tiny island, then another gap
+    if (rnd() < pBig) {
+      c += placeBig(c);
+    } else {
+      const w = rnd() < Math.min(0.9, 0.3 + 0.1 * d) ? 3 : 2;
+      L.gaps.push([c, c + w - 1]);
+      for (let i = 0; i < w; i++) L.extraCoins.push([c + i, 9]);
+      if (n >= 20 && rnd() < Math.min(0.8, 0.02 * (n - 18))) L.bats.push([c + (w >> 1), 7]);   // bat guarding the hole
+      c += w;
+    }
+    if (n >= 10 && rnd() < Math.min(0.75, 0.012 * (n - 8))) forced = 2;   // tiny island, then another hole
   }
   return L;
 }
-const THEMES = [
+
+// Bonus level: a trail of floating cloud platforms full of coins. Falling off costs no life.
+function genBonus(k, seed) {
+  const rnd = mulberry32(seed), R = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+  const Wd = 120 + 6 * k;
+  const L = {name: 'Coin Heaven', base: 'Coin Heaven', bonus: true, bonusNum: k, sky: ['#ffe66d', '#fff9db'], hill: '#ffe3a3',
+             top: '#fff3bf', dirt: '#e9c46a', plat: '#f1f3f5', platTop: '#ffffff', W: Wd, flag: Wd - 5,
+             gaps: [[10, Wd - 11]], plats: [], extraCoins: [], enemies: [], dyn: [], espeed: 1};
+  let x = 10, y = 10;
+  while (true) {
+    let len = R(3, 4);
+    len = Math.max(3, Math.min(len, Wd - 12 - x));
+    L.plats.push([x, y, len]);
+    for (let i = 1; i < len - 1; i++) L.extraCoins.push([x + i, y - 3]);
+    if (x + len >= Wd - 13) break;
+    let dy = R(-2, 2), ny = y - dy;
+    if (ny < 6 || ny > 10) { dy = -dy; ny = y - dy; }
+    const gap = dy > 0 ? 2 : R(2, 3);
+    L.extraCoins.push([x + len, Math.min(y, ny) - 1]);
+    x += len + gap; y = ny;
+  }
+  return L;
+}
+
+const BASE_THEMES = [
+  { name: 'Sunny Meadow', sky: ['#6ec6ff', '#d6f0ff'], hill: '#9ad48b' },
+  { name: 'Sunset Ridge', sky: ['#ff9966', '#ffe3b3'], hill: '#c9a24d' },
+  { name: 'Moonlit Woods', sky: ['#1b2650', '#5b4b8a'], hill: '#2f6b57', stars: true },
   { name: 'Frosty Peaks',  sky: ['#a5d8ff', '#f1f9ff'], hill: '#c8e4f5', top: '#f8f9fa', dirt: '#6c8ea4', plat: '#9bb8c9', platTop: '#e7f5ff' },
   { name: 'Desert Dunes',  sky: ['#ffd8a8', '#fff3bf'], hill: '#e9c46a', top: '#e6b566', dirt: '#b5835a', plat: '#d4a373', platTop: '#f0d9a8' },
   { name: 'Candy Canyon',  sky: ['#ffc9de', '#fff0f6'], hill: '#f783ac', top: '#ff8fab', dirt: '#a9446b', plat: '#b197fc', platTop: '#d0bfff' },
@@ -113,17 +181,47 @@ const THEMES = [
   { name: 'Haunted Hollow', sky: ['#1a1a2e', '#4a4e69'], hill: '#22223b', top: '#6c757d', dirt: '#2b2d42', plat: '#4a4e69', platTop: '#9a8c98', stars: true },
   { name: "Dragon's Peak", sky: ['#ff6b6b', '#ffd6a5'], hill: '#7b2d26', top: '#c0392b', dirt: '#4a1c18', plat: '#6b2d2d', platTop: '#e07a5f' },
 ];
-THEMES.forEach((t, i) => {
-  const d = i + 3, Wd = Math.min(190, 100 + 8 * i);
-  LEVELS.push(genLevel({...t, W: Wd, flag: Wd - 5}, d, 1000 + 77 * i));
-});
-
+// scenery and drifting particles for each theme
+const THEME_FX = {
+  'Sunny Meadow': {deco: 'tree', fx: 'leaf'}, 'Sunset Ridge': {deco: 'tree', fx: 'leaf'}, 'Moonlit Woods': {deco: 'pine', fx: 'firefly'},
+  'Frosty Peaks': {deco: 'pine', fx: 'snow'}, 'Desert Dunes': {deco: 'cactus', fx: null}, 'Candy Canyon': {deco: 'lolli', fx: 'petal'},
+  'Volcano Rim': {deco: null, fx: 'ember'}, 'Storm Castle': {deco: null, fx: null}, 'Cloud Kingdom': {deco: null, fx: 'snow'},
+  'Crystal Caves': {deco: null, fx: 'firefly'}, 'Jungle Ruins': {deco: 'tree', fx: 'leaf'}, 'Pirate Cove': {deco: 'cactus', fx: null},
+  'Toxic Swamp': {deco: 'tree', fx: 'firefly'}, 'Neon City': {deco: null, fx: 'spark'}, 'Haunted Hollow': {deco: 'pine', fx: 'wisp'},
+  "Dragon's Peak": {deco: null, fx: 'ember'}, 'Coin Heaven': {deco: null, fx: 'spark'},
+};
+BASE_THEMES.slice(0, 3).forEach((t, i) => { Object.assign(LEVELS[i], {num: i + 1, base: t.name}); });
+for (let n = 4; n <= 100; n++) {
+  const base = BASE_THEMES[(n - 1) % BASE_THEMES.length], cyc = Math.floor((n - 1) / BASE_THEMES.length);
+  const Wd = Math.min(200, 90 + Math.floor(n * 1.1));
+  LEVELS.push(genLevel({...base, base: base.name, name: cyc ? `${base.name} ${cyc + 1}` : base.name, W: Wd, flag: Wd - 5}, n, 1000 + 77 * n));
+  if (n % 10 === 0) LEVELS.push(genBonus(n / 10, 9000 + n));
+}
+LEVELS.forEach(L => { L.label = L.bonus ? `Bonus ${L.bonusNum}` : `Level ${L.num}/100`; });
 const THEME_DEFAULT = {top: '#4caf50', dirt: '#8a5a35', plat: '#c98a4b', platTop: '#e6ac6d', stars: false, espeed: 1, spikes: []};
 let W, grid, FLAG_C, theme, lvl = 0;
+
+// ---------- Colour helpers (for the shaded look) ----------
+function hexRGB(h) { return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; }
+function mix(a, b, t) {
+  const A = hexRGB(a), B = hexRGB(b);
+  return `rgb(${Math.round(A[0] + (B[0] - A[0]) * t)},${Math.round(A[1] + (B[1] - A[1]) * t)},${Math.round(A[2] + (B[2] - A[2]) * t)})`;
+}
+function rgba(h, a) { const c = hexRGB(h); return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+function hash(a, b) {                           // steady pseudo-random number in [0, 1) for a tile
+  let x = (a * 374761393 + b * 668265263) | 0;
+  x = (x ^ (x >>> 13)) * 1274126177 | 0;
+  return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+}
 
 function buildLevel(n) {
   const L = LEVELS[n];
   theme = {...THEME_DEFAULT, ...L}; W = L.W; FLAG_C = L.flag;
+  const look = THEME_FX[theme.base] || {deco: 'tree', fx: null};
+  Object.assign(theme, {deco: look.deco, fx: look.fx,
+    dirtDark: mix(theme.dirt, '#000000', 0.28), pit: mix(theme.dirt, '#000000', 0.62),
+    topHi: mix(theme.top, '#ffffff', 0.32), topLo: mix(theme.top, '#000000', 0.22),
+    platHi: mix(theme.platTop, '#ffffff', 0.2), platLo: mix(theme.plat, '#000000', 0.25)});
   grid = Array.from({length: H}, () => Array(W).fill(' '));
   for (let c = 0; c < W; c++) {
     if (L.gaps.some(g => c >= g[0] && c <= g[1])) continue;
@@ -135,7 +233,7 @@ function buildLevel(n) {
   const clearRunUp = c => L.gaps.some(g => c >= g[0] - 3 && c <= g[1] + 3);
   for (const [c, r, len] of L.plats) {
     for (let i = 0; i < len; i++) {
-      if (r >= 7 && clearRunUp(c + i)) continue;
+      if (r >= 7 && !L.bonus && clearRunUp(c + i)) continue;
       grid[r][c + i] = '=';
       spots.push([c + i, r - 1]);
     }
@@ -145,36 +243,34 @@ function buildLevel(n) {
 }
 
 // ---------- Skins & saved progress ----------
-// A skin unlocks once you have beaten `req` levels.
+// A skin unlocks once you have cleared `req` levels (bonus levels count too).
 const SKINS = [
-  { name: 'Classic',  req: 0, boy: ['#e8590c', '#3b5bdb'], girl: ['#f06595', '#f06595'] },
-  { name: 'Ocean',    req: 2, boy: ['#1c7ed6', '#0b7285'], girl: ['#15aabf', '#1098ad'], extra: 'cap' },
-  { name: 'Ranger',   req: 3, boy: ['#2f9e44', '#5c940d'], girl: ['#40c057', '#2b8a3e'], extra: 'hat' },
-  { name: 'Ninja',    req: 5, boy: ['#343a40', '#212529'], girl: ['#495057', '#343a40'], extra: 'headband' },
-  { name: 'Hero',     req: 7, boy: ['#1971c2', '#e03131'], girl: ['#7048e8', '#e03131'], extra: 'cape' },
-  { name: 'Champion', req: 8, boy: ['#fcc419', '#f08c00'], girl: ['#ffd43b', '#f59f00'], extra: 'crown' },
-  { name: 'Pirate',    req: 9,  boy: ['#f1f3f5', '#364fc7'], girl: ['#f1f3f5', '#c2255c'], extra: 'bandana' },
-  { name: 'Astronaut', req: 10, boy: ['#f8f9fa', '#adb5bd'], girl: ['#f8f9fa', '#ced4da'], extra: 'helmet' },
-  { name: 'Wizard',    req: 12, boy: ['#7048e8', '#5f3dc4'], girl: ['#9775fa', '#7048e8'], extra: 'wizard' },
-  { name: 'Robot',     req: 13, boy: ['#868e96', '#495057'], girl: ['#adb5bd', '#6c757d'], extra: 'antenna' },
-  { name: 'Dragon',    req: 14, boy: ['#e8590c', '#c92a2a'], girl: ['#ff922b', '#e03131'], extra: 'horns' },
-  { name: 'Rainbow',   req: 16, boy: ['rainbow', 'rainbow'], girl: ['rainbow', 'rainbow'], extra: 'halo' },
-  { name: 'Burger Crew', req: 6, boy: ['#da291c', '#2b2b33'], girl: ['#da291c', '#2b2b33'], extra: 'crew' },
+  { name: 'Classic',     req: 0,   boy: ['#e8590c', '#3b5bdb'], girl: ['#f06595', '#f06595'] },
+  { name: 'Ocean',       req: 4,   boy: ['#1c7ed6', '#0b7285'], girl: ['#15aabf', '#1098ad'], extra: 'cap' },
+  { name: 'Ranger',      req: 8,   boy: ['#2f9e44', '#5c940d'], girl: ['#40c057', '#2b8a3e'], extra: 'hat' },
+  { name: 'Burger Crew', req: 12,  boy: ['#da291c', '#2b2b33'], girl: ['#da291c', '#2b2b33'], extra: 'crew' },
+  { name: 'Ninja',       req: 18,  boy: ['#343a40', '#212529'], girl: ['#495057', '#343a40'], extra: 'headband' },
+  { name: 'Hero',        req: 25,  boy: ['#1971c2', '#e03131'], girl: ['#7048e8', '#e03131'], extra: 'cape' },
+  { name: 'Pirate',      req: 33,  boy: ['#f1f3f5', '#364fc7'], girl: ['#f1f3f5', '#c2255c'], extra: 'bandana' },
+  { name: 'Astronaut',   req: 42,  boy: ['#f8f9fa', '#adb5bd'], girl: ['#f8f9fa', '#ced4da'], extra: 'helmet' },
+  { name: 'Champion',    req: 52,  boy: ['#fcc419', '#f08c00'], girl: ['#ffd43b', '#f59f00'], extra: 'crown' },
+  { name: 'Wizard',      req: 62,  boy: ['#7048e8', '#5f3dc4'], girl: ['#9775fa', '#7048e8'], extra: 'wizard' },
+  { name: 'Robot',       req: 74,  boy: ['#868e96', '#495057'], girl: ['#adb5bd', '#6c757d'], extra: 'antenna' },
+  { name: 'Dragon',      req: 87,  boy: ['#e8590c', '#c92a2a'], girl: ['#ff922b', '#e03131'], extra: 'horns' },
+  { name: 'Rainbow',     req: 100, boy: ['rainbow', 'rainbow'], girl: ['rainbow', 'rainbow'], extra: 'halo' },
 ];
-
 // Pets follow you around. Like skins, they unlock when you have beaten `req` levels.
 const PETS = [
   { name: 'No pet',  req: 0 },
-  { name: 'Prime',   kind: 'dog',     req: 1,  perk: 'Coin magnet: pulls in coins nearby' },
-  { name: 'Dexter',  kind: 'cat',     req: 2,  perk: 'Lucky: starts every life with a shield' },
-  { name: 'Clover',  kind: 'bunny',   req: 4,  perk: 'Springy: jumps 10% higher' },
-  { name: 'Waddles', kind: 'duck',    req: 6,  perk: 'Flutter: hold jump to float down slowly' },
-  { name: 'Bamboo',  kind: 'panda',   req: 8,  perk: 'Heavy stomp: can stomp spiky hedgehogs, bounces higher' },
-  { name: 'Rusty',   kind: 'fox',     req: 10, perk: 'Speedy: runs faster' },
-  { name: 'Ember',   kind: 'dragon',  req: 12, perk: 'Fireproof: spikes cannot hurt you' },
-  { name: 'Sparkle', kind: 'unicorn', req: 15, perk: 'Magic: power-ups last twice as long' },
+  { name: 'Prime',   kind: 'dog',     req: 2,  perk: 'Coin magnet: pulls in coins nearby' },
+  { name: 'Dexter',  kind: 'cat',     req: 5,  perk: 'Lucky: starts every life with a shield' },
+  { name: 'Clover',  kind: 'bunny',   req: 10, perk: 'Springy: jumps 10% higher' },
+  { name: 'Waddles', kind: 'duck',    req: 20, perk: 'Flutter: hold jump to float down slowly' },
+  { name: 'Bamboo',  kind: 'panda',   req: 32, perk: 'Heavy stomp: can stomp spiky hedgehogs, bounces higher' },
+  { name: 'Rusty',   kind: 'fox',     req: 47, perk: 'Speedy: runs faster' },
+  { name: 'Ember',   kind: 'dragon',  req: 64, perk: 'Fireproof: spikes cannot hurt you' },
+  { name: 'Sparkle', kind: 'unicorn', req: 82, perk: 'Magic: power-ups last twice as long' },
 ];
-
 // Power-up items floating in the levels
 const ITEM_TYPES = ['heart', 'shield', 'boots', 'feather', 'star'];
 const ITEM_WEIGHTS = [0.2, 0.25, 0.2, 0.2, 0.15];
@@ -200,7 +296,7 @@ const petUnlocked = i => save.cleared >= PETS[i].req;
 let pet = PETS[save.pet] && petUnlocked(save.pet) ? save.pet : 0;
 let petPos = {x: 0, y: 0, face: 1};
 let startLvl = 0, flash = 0, flashMsg = '', unlockMsg = '';
-let hero, enemies, coins, items, camX, score, lives, timeLeft, stateTimer = 0, tick = 0;
+let hero, enemies, coins, items, dyn = [], camX, score, lives, timeLeft, stateTimer = 0, tick = 0;
 const keys = {};
 const pressed = {};
 
@@ -213,7 +309,8 @@ function placeItems(n) {
     if ([-2, -1, 0, 1, 2].every(k => grid[12][c + k] === '#' && grid[11][c + k] === ' ') && c % 2 === 0) pool.push([c, 11]);
   }
   for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-  const want = Math.max(3, Math.min(8, Math.round(W / 24) - Math.floor(n / 5)));
+  const L = LEVELS[n];
+  const want = L.bonus ? 7 : Math.max(2, Math.min(8, Math.round(W / 24) - Math.floor((L.num || 1) / 12)));
   const picked = [];
   for (const p of pool) {
     if (picked.length >= want) break;
@@ -245,6 +342,12 @@ function resetLevel() {
   for (const c of L.spiders || []) enemies.push({type: 'spider', x: c*T + 5, y: 6*T, y0: 6*T, yLow: 12*T - 18, w: 22, h: 18, vx: 0, ph: c, alive: true, squash: 0});
   for (const [c, r] of L.bats || []) enemies.push({type: 'bat', x: c*T, x0: c*T, y: r*T + 16, y0: r*T + 16, w: 24, h: 14, vx: 0, alive: true, squash: 0, ph: c, sp: L.batSpeed || 1});
   items = placeItems(lvl);
+  dyn = (L.dyn || []).map(o => {
+    const p = {type: o.type, y: o.r * T, w: o.wTiles * T, h: 14, vis: true, dx: 0, dy: 0, ph: o.ph || 0, state: 'idle', timer: 0, stood: false};
+    if (o.type === 'move') Object.assign(p, {x: o.c0 * T, x0: o.c0 * T, x1: o.c1 * T, sp: o.sp});
+    else p.x = o.c * T;
+    return p;
+  });
   coins = spots.filter(([c, r]) => !items.some(it => it.c === c && it.r === r)).map(([c, r]) => ({x: c*T + 16, y: r*T + 16, got: false}));
   camX = 0;
   petPos = {x: hero.x - 22, y: hero.y + hero.h, face: 1};
@@ -264,7 +367,7 @@ function finishLevel() {
   const freshPets = PETS.filter(p => p.req > before && p.req <= save.cleared).map(p => p.name);
   unlockMsg = [fresh.length ? 'New skin unlocked: ' + fresh.join(', ') + '!' : '',
                freshPets.length ? 'New pet unlocked: ' + freshPets.join(', ') + '!' : ''].filter(Boolean).join('   ');
-  score += 200;
+  if (LEVELS[lvl].bonus) { score += 500; lives = Math.min(lives + 1, 9); } else score += 200;   // bonus: +500 and an extra life
   state = lvl < LEVELS.length - 1 ? 'clear' : 'win';
 }
 function cycleSkin(d) { skin = (skin + d + SKINS.length) % SKINS.length; }
@@ -302,7 +405,10 @@ cv.addEventListener('click', e => {
     const side = p.x < VW/2 ? -1 : 1;
     if (Math.abs(p.x - VW/2) < 200 && p.y >= 288 && p.y <= 312) cycleSkin(side);
     else if (Math.abs(p.x - VW/2) < 200 && p.y >= 326 && p.y <= 350) cyclePet(side);
-    else if (Math.abs(p.x - VW/2) < 200 && p.y >= 364 && p.y <= 388) cycleStart(side);
+    else if (Math.abs(p.x - VW/2) < 260 && p.y >= 364 && p.y <= 388) {      // far ends jump 10 levels, the middle steps by 1
+      const dx = p.x - VW/2;
+      cycleStart(Math.abs(dx) > 150 ? Math.sign(dx) * 10 : Math.sign(dx));
+    }
     else if (p.x >= PLAY_BTN.x && p.x <= PLAY_BTN.x + PLAY_BTN.w && p.y >= PLAY_BTN.y && p.y <= PLAY_BTN.y + PLAY_BTN.h) newGame();
   } else if (state === 'clear') nextLevel();
   else if (state === 'win' || state === 'over') state = 'select';
@@ -386,8 +492,28 @@ function moveBody(b, dx, dy) {
 }
 
 // ---------- Update ----------
+// Move / crumble / blink the special platforms (called once per frame while playing)
+function updateDyn() {
+  for (const p of dyn) {
+    p.dx = 0;
+    if (p.type === 'move') {
+      const nx = p.x0 + (p.x1 - p.x0) * (0.5 - 0.5 * Math.cos(tick * p.sp + p.ph));
+      p.dx = nx - p.x; p.x = nx;
+    } else if (p.type === 'crumble') {            // shakes for a moment once you stand on it, falls, then returns
+      if (p.state === 'idle' && p.stood) { p.state = 'shake'; p.timer = 40; }
+      else if (p.state === 'shake' && --p.timer <= 0) { p.state = 'gone'; p.vis = false; p.timer = 170; }
+      else if (p.state === 'gone' && --p.timer <= 0) { p.state = 'idle'; p.vis = true; }
+      p.stood = false;
+    } else if (p.type === 'blink') {              // visible, flickers as a warning, hidden
+      const t = (tick + p.ph) % 240;
+      p.vis = t < 150; p.warn = t >= 120 && t < 150;
+    }
+  }
+}
+
 function loseLife(pit = false) {
-  lives--; state = 'dead';
+  if (!LEVELS[lvl].bonus) lives--;               // bonus levels are free: you just try again
+  state = 'dead';
   if (pit) stateTimer = 25;                    // already out of sight: respawn quickly
   else { stateTimer = 70; hero.vy = -9; }      // little hop, then fall off the screen
 }
@@ -403,8 +529,9 @@ function update() {
     if (pressed.ArrowDown || pressed.KeyS) cycleSkin(1);
     if (pressed.KeyZ) cyclePet(-1);
     if (pressed.KeyX) cyclePet(1);
-    if (pressed.KeyQ) cycleStart(-1);
-    if (pressed.KeyE) cycleStart(1);
+    const jump10 = keys.ShiftLeft || keys.ShiftRight ? 10 : 1;
+    if (pressed.KeyQ) cycleStart(-jump10);
+    if (pressed.KeyE) cycleStart(jump10);
     if (pressed.Enter || pressed.Space) newGame();
     return;
   }
@@ -424,6 +551,9 @@ function update() {
 
   const h = hero;
   const pk = PETS[pet].kind || '';                 // the pet's perk is keyed on its kind
+  updateDyn();
+  if (h.riding && h.riding.vis) { h.x += h.riding.dx; h.y = h.riding.y - h.h; }   // carried along by a moving platform
+  else h.riding = null;
   const left = keys.ArrowLeft || keys.KeyA || touch.left, right = keys.ArrowRight || keys.KeyD || touch.right;
   const jumpHeld = keys.Space || keys.ArrowUp || keys.KeyW || touch.jump;
   const jumpPressed = pressed.Space || pressed.ArrowUp || pressed.KeyW;
@@ -451,9 +581,17 @@ function update() {
   h.vy = Math.min(h.vy + 0.6, 14);
   if (pk === 'duck' && jumpHeld && h.vy > 2.5 && !h.ground) h.vy = 2.5;   // Waddles: hold jump to flutter down
 
+  const bottomBefore = h.y + h.h, vyBefore = h.vy;
   const res = moveBody(h, h.vx, h.vy);
   h.ground = res.ground;
   if (res.hitX) h.vx = 0;
+  // Moving, crumbling and blinking platforms are one-way: you land on them from above
+  let landed = null;
+  for (const p of dyn) {
+    if (p.vis && vyBefore >= 0 && bottomBefore <= p.y + 8 && h.y + h.h >= p.y && h.x + h.w > p.x + 3 && h.x < p.x + p.w - 3) landed = p;
+  }
+  if (landed) { h.y = landed.y - h.h; h.vy = 0; h.ground = true; h.riding = landed; landed.stood = true; }
+  else h.riding = null;
   if (h.inv > 0) h.inv--;
   if (h.y > VH - 12) { loseLife(true); return; }   // fell down a hole
 
@@ -546,14 +684,17 @@ function drawHero(x, y, charId, face, vx, ground, t, skinIdx = 0) {
   // legs
   rect('#5a3b2e', -6 + step, 22, 5, 6);
   rect('#5a3b2e', 1 - step, 22, 5, 6);
+  rect('#2b2b33', -7 + step, 26, 7, 2); rect('#2b2b33', 0 - step, 26, 7, 2);   // shoes
   if (kind === 'boy') {
     rect(bot, -7, 12, 14, 8);                  // shorts
     rect(top, -8, 5, 16, 10);                  // shirt
+    rect('#00000022', 1, 5, 7, 10); rect('#00000020', -8, 13, 16, 2);   // soft shading
     rect(skin, -10, 7 + (ground ? 0 : -3), 3, 6);
     rect(skin, 7, 7 + (ground ? 0 : -3), 3, 6);
   } else {
     rect(bot, -9, 12, 18, 9);                  // dress skirt
     rect(top, -7, 5, 14, 9);
+    rect('#00000022', 1, 5, 6, 9); rect('#00000020', -9, 19, 18, 2);   // soft shading
     rect('#fff', -2, 12, 4, 2);
     rect(skin, -10, 7 + (ground ? 0 : -3), 3, 6);
     rect(skin, 7, 7 + (ground ? 0 : -3), 3, 6);
@@ -841,26 +982,155 @@ function drawBat(e) {
   ctx.restore();
 }
 
+// ---------- Scenery ----------
+const wrap = (v, m) => ((v % m) + m) % m;
+function glow(x, y, r, color, a) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, rgba(color, a)); g.addColorStop(1, rgba(color, 0));
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+}
+function drawHills(color, par, amp, base, freq, phase) {
+  ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0, VH);
+  for (let x = 0; x <= VW + 16; x += 16) {
+    const wx = x + camX * par;
+    ctx.lineTo(x, base - amp * (0.5 + 0.5 * Math.sin(wx * freq + phase)) - amp * 0.35 * Math.sin(wx * freq * 2.3 + phase * 2));
+  }
+  ctx.lineTo(VW + 16, VH); ctx.closePath(); ctx.fill();
+}
+function drawDecoItem(kind, x, y, s) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  if (kind === 'tree') {
+    const leaf = mix('#3f9a4a', theme.hill, 0.3), hi = mix(leaf, '#ffffff', 0.18);
+    ctx.fillStyle = '#6b4a2b'; ctx.fillRect(-4, -30, 8, 32);
+    ctx.fillStyle = leaf; ctx.beginPath(); ctx.arc(0, -44, 22, 0, 7); ctx.arc(-14, -34, 15, 0, 7); ctx.arc(14, -34, 15, 0, 7); ctx.fill();
+    ctx.fillStyle = hi; ctx.beginPath(); ctx.arc(-6, -50, 11, 0, 7); ctx.fill();
+  } else if (kind === 'pine') {
+    const leaf = mix('#2f6b4a', theme.hill, 0.25), snowy = theme.base === 'Frosty Peaks';
+    ctx.fillStyle = '#5a3d27'; ctx.fillRect(-3, -14, 6, 16);
+    for (let k = 0; k < 3; k++) {
+      ctx.fillStyle = leaf; ctx.beginPath(); ctx.moveTo(-20 + k * 4, -10 - k * 18); ctx.lineTo(0, -36 - k * 18); ctx.lineTo(20 - k * 4, -10 - k * 18); ctx.fill();
+      if (snowy) { ctx.fillStyle = '#ffffffcc'; ctx.beginPath(); ctx.moveTo(-8, -26 - k * 18); ctx.lineTo(0, -36 - k * 18); ctx.lineTo(8, -26 - k * 18); ctx.fill(); }
+    }
+  } else if (kind === 'cactus') {
+    const col = mix('#5aa469', theme.hill, 0.3);
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.roundRect(-6, -48, 12, 50, 6); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(-20, -34, 8, 22, 4); ctx.roundRect(-20, -34, 16, 7, 3); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(12, -40, 8, 24, 4); ctx.roundRect(4, -22, 16, 7, 3); ctx.fill();
+    ctx.fillStyle = '#ffffff40'; ctx.fillRect(-3, -44, 2, 40);
+  } else if (kind === 'lolli') {
+    ctx.fillStyle = '#fff'; ctx.fillRect(-2, -30, 4, 32);
+    ctx.fillStyle = '#ff8fab'; ctx.beginPath(); ctx.arc(0, -42, 15, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, -42, 9, 0, 5); ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawFx() {                                // gentle drifting particles
+  const kind = theme.fx; if (!kind) return;
+  for (let i = 0; i < 26; i++) {
+    const a = hash(i, 11), b = hash(i, 23), cc = hash(i, 31);
+    let x, y, r = 2, col = '#ffffff', al = 0.8, soft = false;
+    if (kind === 'snow') { x = wrap(a * VW + tick * 0.25 * (0.5 + b) + Math.sin(tick * 0.02 + i) * 18 - camX * 0.5, VW); y = wrap(b * VH + tick * (0.5 + cc), VH); r = 1.5 + cc * 1.8; }
+    else if (kind === 'leaf') { x = wrap(a * VW + tick * 0.6 - camX * 0.5, VW); y = wrap(b * VH + tick * 0.45 + Math.sin(tick * 0.03 + i) * 12, VH); r = 2.5; col = cc < 0.5 ? '#7cb518' : '#f59f00'; al = 0.7; }
+    else if (kind === 'petal') { x = wrap(a * VW + tick * 0.4 + Math.sin(tick * 0.03 + i) * 20 - camX * 0.5, VW); y = wrap(b * VH + tick * 0.5, VH); r = 2.5; col = '#ffc9de'; }
+    else if (kind === 'ember') { x = wrap(a * VW + Math.sin(tick * 0.04 + i) * 14 - camX * 0.5, VW); const k = wrap(tick * (0.8 + cc) + b * VH, VH); y = VH - k; al = 0.9 * (1 - k / VH); col = '#ff922b'; }
+    else if (kind === 'firefly') { x = wrap(a * VW + Math.sin(tick * 0.02 + i * 3) * 40 - camX * 0.3, VW); y = 140 + b * 230 + Math.sin(tick * 0.03 + i) * 20; al = 0.4 + 0.6 * Math.abs(Math.sin(tick * 0.05 + i)); col = '#ffe066'; soft = true; }
+    else if (kind === 'spark') { x = wrap(a * VW - camX * 0.4 + Math.sin(tick * 0.03 + i) * 10, VW); const k = wrap(tick * (0.5 + cc) + b * VH, VH); y = VH - k; al = 0.8 * (1 - k / VH); col = theme.bonus ? '#ffd43b' : cc < 0.5 ? '#4cc9f0' : '#f72585'; r = 1.8; }
+    else { x = wrap(a * VW + Math.sin(tick * 0.015 + i) * 30 - camX * 0.3, VW); y = 100 + b * 260 + Math.sin(tick * 0.02 + i * 2) * 14; al = 0.25 + 0.2 * Math.sin(tick * 0.04 + i); col = '#dbe4ff'; r = 4; soft = true; }
+    ctx.globalAlpha = Math.max(0, al);
+    if (soft) glow(x, y, 9, col, 0.9);
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
 function drawBackground() {
   const g = ctx.createLinearGradient(0, 0, 0, VH);
   g.addColorStop(0, theme.sky[0]); g.addColorStop(1, theme.sky[1]);
   ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
   if (theme.stars) {
-    ctx.fillStyle = '#fff';
-    for (let i = 0; i < 40; i++) ctx.fillRect((i * 97) % VW, (i * 53) % 200, 2, 2);
-    ctx.fillStyle = '#fff6c8'; ctx.beginPath(); ctx.arc(650, 80, 34, 0, 7); ctx.fill();
+    for (let i = 0; i < 46; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${0.35 + 0.65 * Math.abs(Math.sin(tick * 0.03 + i))})`;
+      const s = i % 5 === 0 ? 3 : 2; ctx.fillRect((i * 97) % VW, (i * 53) % 220, s, s);
+    }
+    glow(660, 78, 80, '#fff6c8', 0.35);
+    ctx.fillStyle = '#fff6c8'; ctx.beginPath(); ctx.arc(660, 78, 30, 0, 7); ctx.fill();
+    ctx.fillStyle = '#e6dfae'; ctx.beginPath(); ctx.arc(650, 70, 6, 0, 7); ctx.arc(671, 90, 4, 0, 7); ctx.fill();
+  } else {
+    glow(650, 72, 150, '#fff7c2', 0.6);
+    ctx.fillStyle = '#fffbe3'; ctx.beginPath(); ctx.arc(650, 72, 28, 0, 7); ctx.fill();
   }
-  ctx.fillStyle = theme.stars ? '#ffffff22' : '#fff9';
-  for (let i = 0; i < 8; i++) {
-    const x = ((i * 260 - camX * 0.3) % (VW + 200) + VW + 200) % (VW + 200) - 100;
-    const y = 50 + (i * 47) % 120;
-    ctx.beginPath(); ctx.arc(x, y, 24, 0, 7); ctx.arc(x + 26, y + 6, 20, 0, 7); ctx.arc(x - 26, y + 6, 18, 0, 7); ctx.fill();
+  // soft clouds
+  for (let i = 0; i < 7; i++) {
+    const x = wrap(i * 260 - camX * 0.15, VW + 300) - 150, y = 46 + (i * 47) % 130;
+    ctx.fillStyle = theme.stars ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.85)';
+    ctx.beginPath(); ctx.arc(x, y, 24, 0, 7); ctx.arc(x + 26, y + 6, 20, 0, 7); ctx.arc(x - 26, y + 6, 18, 0, 7); ctx.arc(x + 4, y - 8, 18, 0, 7); ctx.fill();
+    ctx.fillStyle = theme.stars ? 'rgba(0,0,0,0.05)' : 'rgba(120,150,190,0.14)';
+    ctx.beginPath(); ctx.ellipse(x, y + 14, 44, 6, 0, 0, 7); ctx.fill();
   }
-  ctx.fillStyle = theme.hill;
-  for (let i = -1; i < 7; i++) {
-    const x = i * 220 - (camX * 0.5) % 220;
-    ctx.beginPath(); ctx.moveTo(x, 384); ctx.quadraticCurveTo(x + 110, 220, x + 220, 384); ctx.fill();
+  // three layers of hills, hazier the further away
+  drawHills(mix(theme.hill, theme.sky[1], 0.6), 0.10, 70, 332, 0.004, 1);
+  drawHills(mix(theme.hill, theme.sky[1], 0.3), 0.22, 55, 362, 0.006, 3);
+  drawHills(theme.hill, 0.40, 40, 392, 0.009, 5);
+  if (theme.deco) {
+    const par = 0.6, step = 150, first = Math.floor(camX * par / step) - 1;
+    for (let i = first; i < first + Math.ceil(VW / step) + 3; i++) {
+      const sx = i * step + hash(i, 7) * 70 - camX * par;
+      if (sx > -60 && sx < VW + 60) drawDecoItem(theme.deco, sx, 388, 0.8 + hash(i, 3) * 0.5);
+    }
   }
+  if (!theme.bonus) {                              // holes look like dark pits
+    const pg = ctx.createLinearGradient(0, 384, 0, VH);
+    pg.addColorStop(0, theme.pit); pg.addColorStop(1, '#000000');
+    ctx.fillStyle = pg; ctx.fillRect(0, 384, VW, VH - 384);
+  }
+  const hz = ctx.createLinearGradient(0, 290, 0, 384);   // a little haze near the horizon
+  hz.addColorStop(0, rgba(theme.sky[1], 0)); hz.addColorStop(1, rgba(theme.sky[1], 0.35));
+  ctx.fillStyle = hz; ctx.fillRect(0, 290, VW, 94);
+  drawFx();
+}
+
+// Special platforms
+function drawDyn(p) {
+  const x = Math.round(p.x), y = Math.round(p.y), w = p.w;
+  if (p.type === 'move') {                         // wooden plank on a track, with metal ends
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(x + 3, y + 14, w - 6, 3);
+    ctx.fillStyle = '#8d6e3f'; ctx.beginPath(); ctx.roundRect(x, y, w, 14, 5); ctx.fill();
+    ctx.fillStyle = '#c4a46a'; ctx.fillRect(x + 4, y + 1, w - 8, 4);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; for (let i = 1; i < w / T; i++) ctx.fillRect(x + i * T, y + 3, 1.5, 9);
+    ctx.fillStyle = '#6c757d'; ctx.fillRect(x, y + 2, 5, 10); ctx.fillRect(x + w - 5, y + 2, 5, 10);
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    const mid = x + w / 2; ctx.beginPath(); ctx.moveTo(mid - 14, y + 7); ctx.lineTo(mid - 8, y + 3); ctx.lineTo(mid - 8, y + 11); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(mid + 14, y + 7); ctx.lineTo(mid + 8, y + 3); ctx.lineTo(mid + 8, y + 11); ctx.fill();
+  } else if (p.type === 'crumble') {               // cracked stone slab
+    const shake = p.state === 'shake' ? Math.sin(tick * 2.3) * 1.6 : 0;
+    if (!p.vis) { if (p.timer < 25) { ctx.globalAlpha = 0.15 + (25 - p.timer) / 40; } else return; }
+    ctx.save(); ctx.translate(shake, 0);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(x + 3, y + 14, w - 6, 3);
+    ctx.fillStyle = p.state === 'shake' ? '#8b9096' : '#9aa0a6'; ctx.beginPath(); ctx.roundRect(x, y, w, 14, 4); ctx.fill();
+    ctx.fillStyle = '#ced4da'; ctx.fillRect(x + 3, y + 1, w - 6, 4);
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1.5; ctx.beginPath();
+    ctx.moveTo(x + w * 0.3, y + 1); ctx.lineTo(x + w * 0.4, y + 7); ctx.lineTo(x + w * 0.33, y + 13);
+    if (p.state === 'shake') { ctx.moveTo(x + w * 0.7, y + 1); ctx.lineTo(x + w * 0.6, y + 8); ctx.lineTo(x + w * 0.68, y + 13); }
+    ctx.stroke(); ctx.restore(); ctx.globalAlpha = 1;
+  } else {                                         // blinking crystal
+    if (!p.vis) { ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]); ctx.strokeRect(x + 1, y + 1, w - 2, 12); ctx.setLineDash([]); return; }
+    ctx.globalAlpha = p.warn ? (tick % 8 < 4 ? 0.35 : 0.9) : 0.92;
+    ctx.fillStyle = '#74d7ee'; ctx.beginPath(); ctx.roundRect(x, y, w, 14, 5); ctx.fill();
+    ctx.fillStyle = '#c5f6fa'; ctx.fillRect(x + 4, y + 1, w - 8, 4);
+    ctx.fillStyle = '#ffffffaa'; ctx.fillRect(x + 8 + (tick * 0.6) % (w - 20), y + 2, 3, 9);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function groundY(px, fromY) {                      // the first floor under a point, for soft shadows
+  const c = Math.floor(px / T); let best = null;
+  if (c >= 0 && c < W) for (let r = Math.max(0, Math.floor(fromY / T)); r < H; r++) if (solid(c, r)) { best = r * T; break; }
+  for (const p of dyn) if (p.vis && px >= p.x && px <= p.x + p.w && p.y >= fromY - 2 && (best === null || p.y < best)) best = p.y;
+  return best;
+}
+function shadow(cx, gy, rx, a) {
+  ctx.fillStyle = `rgba(0,0,0,${a})`; ctx.beginPath(); ctx.ellipse(cx, gy + 1, Math.max(2, rx), 3, 0, 0, 7); ctx.fill();
 }
 
 function drawWorld() {
@@ -871,30 +1141,61 @@ function drawWorld() {
     const t = grid[r][c]; if (t === ' ') continue;
     const x = c*T, y = r*T;
     if (t === '#') {
-      ctx.fillStyle = theme.dirt; ctx.fillRect(x, y, T, T);
-      if (!solid(c, r-1)) { ctx.fillStyle = theme.top; ctx.fillRect(x, y, T, 8); }
-      ctx.fillStyle = '#0002'; ctx.fillRect(x + 4, y + 16, 6, 4); ctx.fillRect(x + 18, y + 24, 6, 4);
+      ctx.fillStyle = r === 12 ? theme.dirt : theme.dirtDark; ctx.fillRect(x, y, T, T);
+      ctx.fillStyle = 'rgba(0,0,0,0.10)'; ctx.fillRect(x, y + 16, T, 16);
+      for (let k = 0; k < 2; k++) {                // pebbles
+        const px = x + 4 + hash(c, r * 3 + k) * 22, py = y + 12 + hash(r, c * 5 + k) * 16;
+        ctx.fillStyle = 'rgba(0,0,0,0.16)'; ctx.beginPath(); ctx.ellipse(px, py, 2.5, 1.8, 0, 0, 7); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(px - 1, py - 2, 2, 1);
+      }
+      if (!solid(c, r-1)) {                        // grass top with blades (and the odd flower)
+        ctx.fillStyle = theme.topLo; ctx.fillRect(x, y, T, 10);
+        ctx.fillStyle = theme.top; ctx.fillRect(x, y, T, 7);
+        ctx.fillStyle = theme.topHi; ctx.fillRect(x, y, T, 2);
+        for (let k = 0; k < 4; k++) {
+          const bx = x + 2 + hash(c, k + 40) * 26, bh = 3 + hash(c, k + 50) * 4;
+          ctx.fillStyle = k % 2 ? theme.top : theme.topHi;
+          ctx.beginPath(); ctx.moveTo(bx - 2, y + 1); ctx.lineTo(bx, y - bh); ctx.lineTo(bx + 2, y + 1); ctx.fill();
+        }
+        if (theme.deco === 'tree' && hash(c, 99) < 0.14) {
+          const fx0 = x + 6 + hash(c, 98) * 20;
+          ctx.fillStyle = ['#ff6b6b', '#ffd43b', '#fff', '#e599f7'][Math.floor(hash(c, 97) * 4)];
+          ctx.beginPath(); ctx.arc(fx0, y - 2, 2.2, 0, 7); ctx.fill();
+        }
+      }
     } else if (t === '^') {
       ctx.fillStyle = '#ced4da';
       ctx.beginPath(); ctx.moveTo(x + 2, y + T); ctx.lineTo(x + 10, y + 12); ctx.lineTo(x + 16, y + T); ctx.lineTo(x + 22, y + 12); ctx.lineTo(x + 30, y + T); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.moveTo(x + 10, y + 12); ctx.lineTo(x + 16, y + T); ctx.lineTo(x + 12, y + T); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x + 22, y + 12); ctx.lineTo(x + 30, y + T); ctx.lineTo(x + 25, y + T); ctx.fill();
       ctx.fillStyle = '#868e96'; ctx.fillRect(x, y + T - 4, T, 4);
     } else {
       ctx.fillStyle = theme.plat; ctx.fillRect(x, y, T, T);
-      ctx.fillStyle = theme.platTop; ctx.fillRect(x, y, T, 6);
-      ctx.strokeStyle = '#0004'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, T - 2, T - 2);
+      ctx.fillStyle = theme.platHi; ctx.fillRect(x, y, T, 6);
+      ctx.fillStyle = theme.platLo; ctx.fillRect(x, y + T - 6, T, 6);
+      ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(x + 3, y + 13, 14, 2); ctx.fillRect(x + 15, y + 21, 12, 2);
+      ctx.strokeStyle = 'rgba(0,0,0,0.28)'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, T - 2, T - 2);
     }
   }
   // flag
-  const fx = FLAG_C * T;
-  ctx.fillStyle = '#eee'; ctx.fillRect(fx + 14, 12*T - 150, 4, 150);
+  const fx = FLAG_C * T, fy = 12*T - 150;
+  ctx.fillStyle = '#e9ecef'; ctx.fillRect(fx + 14, fy, 4, 150);
+  ctx.fillStyle = '#ced4da'; ctx.fillRect(fx + 16, fy, 2, 150);
+  ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.arc(fx + 16, fy - 3, 4.5, 0, 7); ctx.fill();
   const flagCol = SKINS[skin][CHARS[choice].kind][0];
   ctx.fillStyle = flagCol === 'rainbow' ? `hsl(${(tick * 5) % 360},85%,55%)` : flagCol;
-  ctx.beginPath(); ctx.moveTo(fx + 18, 12*T - 150); ctx.lineTo(fx + 58, 12*T - 132); ctx.lineTo(fx + 18, 12*T - 114); ctx.fill();
+  const wave = Math.sin(tick * 0.12) * 3;
+  ctx.beginPath(); ctx.moveTo(fx + 18, fy); ctx.quadraticCurveTo(fx + 38, fy + 4 + wave, fx + 58, fy + 18);
+  ctx.quadraticCurveTo(fx + 38, fy + 32 - wave, fx + 18, fy + 36); ctx.fill();
+  // special platforms
+  for (const p of dyn) drawDyn(p);
   // coins
   for (const c of coins) if (!c.got) {
-    const w = Math.abs(Math.cos(tick * 0.06 + c.x));
-    ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.ellipse(c.x, c.y + Math.sin(tick*0.1 + c.x)*2, 8 * Math.max(0.25, w), 9, 0, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#e67700'; ctx.lineWidth = 2; ctx.stroke();
+    const w = Math.abs(Math.cos(tick * 0.06 + c.x)), rx = 8 * Math.max(0.25, w), cy = c.y + Math.sin(tick * 0.1 + c.x) * 2;
+    ctx.fillStyle = '#e67700'; ctx.beginPath(); ctx.ellipse(c.x, cy, rx + 1.5, 10.5, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.ellipse(c.x, cy, rx, 9, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#f59f00'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(c.x, cy, rx * 0.6, 6, 0, 0, 7); ctx.stroke();
+    ctx.fillStyle = '#fff3bf'; ctx.beginPath(); ctx.ellipse(c.x - rx * 0.4, cy - 3.5, Math.max(0.7, rx * 0.22), 3, 0, 0, 7); ctx.fill();
   }
   // power-ups
   for (const it of items) if (!it.got) drawItem(it.type, it.x, it.y + Math.sin(tick * 0.08 + it.c) * 3, 12, tick);
@@ -904,11 +1205,18 @@ function drawWorld() {
       if (e.squash > 0 && e.type !== 'bat' && e.type !== 'spider') { ctx.fillStyle = '#8d8d94'; ctx.beginPath(); ctx.ellipse(e.x + e.w/2, e.y + e.h - 3, 15, 3, 0, 0, 7); ctx.fill(); }
       continue;
     }
+    if (e.type === 'raccoon' || e.type === 'snake' || e.type === 'hedgehog') shadow(e.x + e.w/2, e.y + e.h, e.w * 0.55, 0.22);
     if (e.type === 'bat') drawBat(e);
     else if (e.type === 'snake') drawSnake(e);
     else if (e.type === 'spider') drawSpider(e);
     else if (e.type === 'hedgehog') drawHedgehog(e);
     else drawRaccoon(e.x + e.w/2, e.y + e.h, e.vx > 0 ? 1 : -1, tick + e.x);
+  }
+  // soft shadows under the hero and the pet
+  if (state !== 'dead') {
+    const hx = hero.x + hero.w/2, gy = groundY(hx, hero.y + hero.h - 2);
+    if (gy !== null) { const dist = Math.max(0, gy - (hero.y + hero.h)); shadow(hx, gy, hero.w * 0.5 * (1 - Math.min(dist, 150) / 400), Math.max(0.08, 0.28 - dist / 500)); }
+    if (pet > 0) { const gp = groundY(petPos.x, petPos.y - 2); if (gp !== null) shadow(petPos.x, gp, 8, 0.2); }
   }
   // power-up effects around the hero
   if (state !== 'dead') {
@@ -927,8 +1235,11 @@ function drawWorld() {
   // hero
   if (state !== 'dead' || stateTimer % 4 < 3) drawHero(hero.x, hero.y, choice, hero.face, hero.vx, hero.ground, tick, skin);
   ctx.restore();
+  // gentle vignette
+  const vg = ctx.createRadialGradient(VW/2, VH/2, VH * 0.45, VW/2, VH/2, VW * 0.7);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.2)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
 }
-
 function text(s, x, y, size, color = '#fff', align = 'center') {
   ctx.font = `bold ${size}px system-ui, sans-serif`; ctx.textAlign = align; ctx.textBaseline = 'middle';
   ctx.lineWidth = Math.max(3, size / 6); ctx.strokeStyle = '#0006'; ctx.strokeText(s, x, y);
@@ -971,7 +1282,7 @@ function drawSelect() {
   text(pet === 0 ? `Pets unlocked: ${PETS.filter((p, i) => petUnlocked(i)).length - 1}/${PETS.length - 1}`
                  : petOpen ? pk.perk : `${lockMsg(pk.req)} · ${pk.perk}`, VW/2, 356, 13, petOpen || pet === 0 ? '#fff' : '#ffa8a8');
   if (pet > 0) { ctx.globalAlpha = petOpen ? 1 : 0.35; drawPet(pk.kind, VW/2 - 150, 354, 1, tick, 1.5, false); ctx.globalAlpha = 1; }
-  text(`◀ Start at level ${startLvl + 1}: ${LEVELS[startLvl].name} ▶`, VW/2, 376, 14, '#fff');
+  text(`«  ◀  Start at ${LEVELS[startLvl].label}: ${LEVELS[startLvl].name}  ▶  »`, VW/2, 376, 14, '#fff');
   if (!isTouch) text('← → or 1-5 hero  ·  ↑ ↓ skin  ·  Z X pet  ·  Q E level  ·  Enter to start', VW/2, 92, 13, '#fff');
   ctx.fillStyle = '#40c057'; ctx.beginPath(); ctx.roundRect(PLAY_BTN.x, PLAY_BTN.y, PLAY_BTN.w, PLAY_BTN.h, 14); ctx.fill();
   ctx.strokeStyle = '#2b8a3e'; ctx.lineWidth = 4; ctx.stroke();
@@ -981,7 +1292,7 @@ function drawSelect() {
 
 function drawHUD() {
   text('Score ' + score, 16, 22, 20, '#fff', 'left');
-  text(`${NAMES[choice]} · Level ${lvl + 1}/${LEVELS.length}: ${theme.name}`, VW/2, 40, 14);
+  text(`${NAMES[choice]} · ${LEVELS[lvl].label}: ${theme.name}`, VW/2, 40, 14);
   text('Lives ' + '♥'.repeat(Math.max(lives, 0)), VW - 16, 22, 20, '#ff6b6b', 'right');
   // active power-ups
   let px = 16;
@@ -1014,8 +1325,8 @@ function frame() {
   else {
     drawWorld(); drawHUD();
     if (isTouch && (state === 'play' || state === 'dead')) drawTouchControls();
-    if (state === 'clear') overlay(`Level ${lvl + 1} complete!`, 'Score: ' + score, '#ffd43b', `Press Enter for ${LEVELS[lvl + 1].name}`);
-    if (state === 'win') overlay(`${NAMES[choice]} beat all ${LEVELS.length} levels!`, 'Final score: ' + score, '#ffd43b');
+    if (state === 'clear') overlay(LEVELS[lvl].bonus ? `Bonus ${LEVELS[lvl].bonusNum} complete! +500, +1 life` : `${LEVELS[lvl].label.replace('/100', '')} complete!`, 'Score: ' + score, '#ffd43b', `Press Enter for ${LEVELS[lvl + 1].label.replace('/100', '')}: ${LEVELS[lvl + 1].name}`);
+    if (state === 'win') overlay(`${NAMES[choice]} beat all 100 levels!`, 'Final score: ' + score, '#ffd43b');
     if (state === 'over') overlay('Game Over', 'Score: ' + score, '#ff6b6b');
   }
   requestAnimationFrame(frame);
