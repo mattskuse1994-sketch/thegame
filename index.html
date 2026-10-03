@@ -112,9 +112,15 @@ function buildLevel(n) {
     grid[12][c] = '#'; grid[13][c] = '#';
   }
   const spots = L.extraCoins.map(p => p.slice());
+  // Low platforms (row 9) right before a hole would bump your head mid-jump, so leave
+  // the last 3 tiles before every hole clear.
+  const clearRunUp = c => L.gaps.some(g => c >= g[0] - 3 && c < g[0]);
   for (const [c, r, len] of L.plats) {
-    for (let i = 0; i < len; i++) grid[r][c + i] = '=';
-    for (let i = 0; i < len; i++) spots.push([c + i, r - 1]);
+    for (let i = 0; i < len; i++) {
+      if (r === 9 && clearRunUp(c + i)) continue;
+      grid[r][c + i] = '=';
+      spots.push([c + i, r - 1]);
+    }
   }
   for (const [c, len] of theme.spikes) for (let i = 0; i < len; i++) grid[11][c + i] = '^';
   return spots;
@@ -266,7 +272,7 @@ function moveBody(b, dx, dy) {
   let hitX = false;
   for (let r = Math.floor(b.y / T); r <= Math.floor((b.y + b.h - 0.01) / T); r++)
     for (let c = Math.floor(b.x / T); c <= Math.floor((b.x + b.w - 0.01) / T); c++)
-      if (solid(c, r)) {
+      if (dx !== 0 && solid(c, r)) {     // only block sideways movement; vertical overlap is handled below
         hitX = true;
         b.x = dx > 0 ? c*T - b.w : (c+1)*T;
         dx = 0;
@@ -284,8 +290,10 @@ function moveBody(b, dx, dy) {
 }
 
 // ---------- Update ----------
-function loseLife() {
-  lives--; state = 'dead'; stateTimer = 70;
+function loseLife(pit = false) {
+  lives--; state = 'dead';
+  if (pit) stateTimer = 25;                    // already out of sight: respawn quickly
+  else { stateTimer = 70; hero.vy = -9; }      // little hop, then fall off the screen
 }
 function update() {
   tick++;
@@ -311,8 +319,8 @@ function update() {
     return;
   }
   if (state === 'dead') {
-    if (--stateTimer <= 0) { if (lives <= 0) state = 'over'; else { resetLevel(); state = 'play'; } }
     hero.vy += 0.6; hero.y += hero.vy;
+    if (--stateTimer <= 0) { if (lives <= 0) state = 'over'; else { resetLevel(); state = 'play'; } }
     return;
   }
 
@@ -339,7 +347,7 @@ function update() {
   h.ground = res.ground;
   if (res.hitX) h.vx = 0;
   if (h.inv > 0) h.inv--;
-  if (h.y > VH + 60) { loseLife(); return; }
+  if (h.y > VH - 12) { loseLife(true); return; }   // fell down a hole
 
   // coins
   for (const c of coins) if (!c.got && Math.hypot(c.x - (h.x + h.w/2), c.y - (h.y + h.h/2)) < 22) { c.got = true; score += 10; }
