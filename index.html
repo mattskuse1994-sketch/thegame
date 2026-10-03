@@ -248,18 +248,27 @@ const SKINS = [
   { name: 'Classic',     req: 0,   boy: ['#e8590c', '#3b5bdb'], girl: ['#f06595', '#f06595'] },
   { name: 'Ocean',       req: 4,   boy: ['#1c7ed6', '#0b7285'], girl: ['#15aabf', '#1098ad'], extra: 'cap' },
   { name: 'Ranger',      req: 8,   boy: ['#2f9e44', '#5c940d'], girl: ['#40c057', '#2b8a3e'], extra: 'hat' },
+  { name: 'Farmer',      req: 10,  boy: ['#e03131', '#1c7ed6'], girl: ['#f06595', '#1c7ed6'], extra: 'strawhat' },
   { name: 'Burger Crew', req: 12,  boy: ['#da291c', '#2b2b33'], girl: ['#da291c', '#2b2b33'], extra: 'crew' },
+  { name: 'Chef',        req: 16,  boy: ['#f8f9fa', '#343a40'], girl: ['#f8f9fa', '#343a40'], extra: 'chef' },
   { name: 'Ninja',       req: 18,  boy: ['#343a40', '#212529'], girl: ['#495057', '#343a40'], extra: 'headband' },
+  { name: 'Firefighter', req: 22,  boy: ['#c92a2a', '#2b2b33'], girl: ['#e03131', '#2b2b33'], extra: 'fire' },
   { name: 'Hero',        req: 25,  boy: ['#1971c2', '#e03131'], girl: ['#7048e8', '#e03131'], extra: 'cape' },
+  { name: 'Cowboy',      req: 28,  boy: ['#8d5a2b', '#3b5bdb'], girl: ['#c2255c', '#3b5bdb'], extra: 'cowboy' },
   { name: 'Pirate',      req: 33,  boy: ['#f1f3f5', '#364fc7'], girl: ['#f1f3f5', '#c2255c'], extra: 'bandana' },
+  { name: 'Knight',      req: 36,  boy: ['#adb5bd', '#868e96'], girl: ['#ced4da', '#868e96'], extra: 'knight' },
   { name: 'Astronaut',   req: 42,  boy: ['#f8f9fa', '#adb5bd'], girl: ['#f8f9fa', '#ced4da'], extra: 'helmet' },
+  { name: 'Viking',      req: 46,  boy: ['#8d5a2b', '#5c3a1e'], girl: ['#a0522d', '#5c3a1e'], extra: 'viking' },
   { name: 'Champion',    req: 52,  boy: ['#fcc419', '#f08c00'], girl: ['#ffd43b', '#f59f00'], extra: 'crown' },
+  { name: 'Fairy',       req: 56,  boy: ['#69db7c', '#37b24d'], girl: ['#f783ac', '#da77f2'], extra: 'fairy' },
   { name: 'Wizard',      req: 62,  boy: ['#7048e8', '#5f3dc4'], girl: ['#9775fa', '#7048e8'], extra: 'wizard' },
+  { name: 'Pilot',       req: 68,  boy: ['#8d5a2b', '#495057'], girl: ['#a0522d', '#495057'], extra: 'pilot' },
   { name: 'Robot',       req: 74,  boy: ['#868e96', '#495057'], girl: ['#adb5bd', '#6c757d'], extra: 'antenna' },
+  { name: 'Dino',        req: 80,  boy: ['#51cf66', '#2f9e44'], girl: ['#63e6be', '#12b886'], extra: 'dino' },
   { name: 'Dragon',      req: 87,  boy: ['#e8590c', '#c92a2a'], girl: ['#ff922b', '#e03131'], extra: 'horns' },
   { name: 'Rainbow',     req: 100, boy: ['rainbow', 'rainbow'], girl: ['rainbow', 'rainbow'], extra: 'halo' },
-];
-// Pets follow you around. Like skins, they unlock when you have beaten `req` levels.
+  { name: 'Galaxy',      req: 110, boy: ['#5f3dc4', '#364fc7'], girl: ['#7048e8', '#4c6ef5'], extra: 'galaxy' },
+];// Pets follow you around. Like skins, they unlock when you have beaten `req` levels.
 const PETS = [
   { name: 'No pet',  req: 0 },
   { name: 'Prime',   kind: 'dog',     req: 2,  perk: 'Coin magnet: pulls in coins nearby' },
@@ -291,7 +300,8 @@ const skinUnlocked = i => save.cleared >= SKINS[i].req;
 // ---------- State ----------
 let state = 'select';           // select | play | dead | clear | win | over
 let choice = CHARS[save.char] ? save.char : 'jesse';
-let skin = SKINS[save.skin] && skinUnlocked(save.skin) ? save.skin : 0;
+let skin = Math.max(0, SKINS.findIndex(s => s.name === save.skinName));     // remembered by name, so new skins never shuffle it
+if (!skinUnlocked(skin)) skin = 0;
 const petUnlocked = i => save.cleared >= PETS[i].req;
 let pet = PETS[save.pet] && petUnlocked(save.pet) ? save.pet : 0;
 let petPos = {x: 0, y: 0, face: 1};
@@ -355,7 +365,7 @@ function resetLevel() {
 function newGame() {
   if (!skinUnlocked(skin)) { flash = 90; flashMsg = 'That skin is still locked!'; return; }
   if (!petUnlocked(pet)) { flash = 90; flashMsg = 'That pet is still locked!'; return; }
-  save.skin = skin; save.char = choice; save.pet = pet; writeSave();
+  save.skinName = SKINS[skin].name; save.char = choice; save.pet = pet; writeSave();
   score = 0; lives = 3; lvl = startLvl; resetLevel(); state = 'play';
 }
 function nextLevel() { lvl++; lives = Math.max(lives, 3); resetLevel(); state = 'play'; }
@@ -676,6 +686,16 @@ function drawHero(x, y, charId, face, vx, ground, t, skinIdx = 0) {
   let [top, bot] = sk[kind];
   if (top === 'rainbow') { top = `hsl(${(t * 5) % 360},85%,55%)`; bot = `hsl(${(t * 5 + 140) % 360},85%,45%)`; }
   const rect = (c, a, b, w, h) => { ctx.fillStyle = c; ctx.fillRect(a, b, w, h); };
+  if (sk.extra === 'fairy') {                   // fluttery wings behind
+    const fl = Math.sin(t * 0.3) * 0.25;
+    ctx.fillStyle = 'rgba(231,153,247,0.7)'; ctx.beginPath(); ctx.ellipse(-8, 9, 7, 13, -0.5 + fl, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,200,240,0.7)'; ctx.beginPath(); ctx.ellipse(-6, 17, 5, 8, -0.2 + fl, 0, 7); ctx.fill();
+  }
+  if (sk.extra === 'dino') {                    // tail and back spikes
+    ctx.fillStyle = top; ctx.beginPath(); ctx.moveTo(-6, 14); ctx.lineTo(-19, 21 + Math.sin(t * 0.3) * 2); ctx.lineTo(-6, 21); ctx.fill();
+    ctx.fillStyle = bot;
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(-8, 7 + i * 4); ctx.lineTo(-12, 9 + i * 4); ctx.lineTo(-8, 11 + i * 4); ctx.fill(); }
+  }
   if (sk.extra === 'cape') {                   // behind the body
     const fl = ground ? Math.abs(vx) * 3 : 8 + Math.sin(t * 0.4) * 3;
     ctx.fillStyle = '#e03131';
@@ -764,6 +784,44 @@ function drawHero(x, y, charId, face, vx, ground, t, skinIdx = 0) {
     ctx.fillStyle = '#f1f3f5';
     ctx.beginPath(); ctx.moveTo(-7, -8); ctx.lineTo(-10, -16); ctx.lineTo(-3, -8); ctx.fill();
     ctx.beginPath(); ctx.moveTo(3, -8); ctx.lineTo(8, -16); ctx.lineTo(7, -8); ctx.fill();
+  }
+  if (sk.extra === 'strawhat') {                // farmer: straw hat and overalls
+    rect('#e6c26e', -12, -9, 24, 3); rect('#e6c26e', -6, -15, 12, 7); rect('#c0392b', -6, -10, 12, 2);
+    rect(bot, -5, 7, 10, 7); rect(bot, -5, 5, 2, 3); rect(bot, 3, 5, 2, 3);
+  }
+  if (sk.extra === 'chef') {                    // tall white hat and apron
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(-4, -14, 5, 0, 7); ctx.arc(4, -14, 5, 0, 7); ctx.arc(0, -17, 5, 0, 7); ctx.fill();
+    rect('#fff', -6, -13, 12, 6); rect('#dee2e6', -6, -8, 12, 2); rect('#fff', -6, 7, 12, 9); rect('#dee2e6', -6, 7, 12, 1);
+  }
+  if (sk.extra === 'fire') { rect(top, -8, -11, 16, 5); rect(top, -9, -7, 18, 2); rect('#ffd43b', -2, -10, 4, 3); rect('#ffd43b', -8, 10, 16, 2); }
+  if (sk.extra === 'cowboy') {
+    rect('#8d5a2b', -13, -9, 26, 3); rect('#8d5a2b', -13, -12, 3, 4); rect('#8d5a2b', 10, -12, 3, 4);
+    rect('#8d5a2b', -6, -16, 12, 8); rect('#5c3a1e', -6, -10, 12, 2); rect('#e03131', -5, 6, 10, 2);
+  }
+  if (sk.extra === 'knight') {
+    rect('#adb5bd', -8, -11, 16, 7); rect('#868e96', -8, -6, 16, 2);
+    ctx.fillStyle = '#e03131'; ctx.beginPath(); ctx.ellipse(-1, -15, 3, 6, -0.4, 0, 7); ctx.fill();
+    rect('#e03131', -1, 7, 2, 7); rect('#e03131', -4, 9, 8, 2);
+  }
+  if (sk.extra === 'viking') {
+    rect('#868e96', -8, -11, 16, 6); rect('#5c3a1e', -8, -6, 16, 2);
+    ctx.fillStyle = '#f1f3f5';
+    ctx.beginPath(); ctx.moveTo(-8, -9); ctx.lineTo(-14, -19); ctx.lineTo(-4, -10); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(8, -9); ctx.lineTo(14, -19); ctx.lineTo(4, -10); ctx.fill();
+  }
+  if (sk.extra === 'fairy') { rect('#ffd43b', -4, -9, 8, 2); ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(2, -9); ctx.lineTo(-2, -9); ctx.fill(); }
+  if (sk.extra === 'pilot') {                   // flying cap, goggles and a fluttering scarf
+    rect('#8d5a2b', -8, -10, 16, 5); rect('#8d5a2b', -9, -8, 3, 8); rect('#ced4da', -1, -10, 7, 3);
+    ctx.fillStyle = '#74c0fc'; ctx.beginPath(); ctx.arc(1, -9, 2, 0, 7); ctx.arc(5, -9, 2, 0, 7); ctx.fill();
+    rect('#fff', -6, 6, 12, 2); rect('#fff', -13, 6 + Math.sin(t * 0.3) * 1.5, 7, 2);
+  }
+  if (sk.extra === 'dino') {
+    ctx.fillStyle = bot;
+    for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.moveTo(-7 + i * 4, -8); ctx.lineTo(-5 + i * 4, -13); ctx.lineTo(-3 + i * 4, -8); ctx.fill(); }
+  }
+  if (sk.extra === 'galaxy') {                  // twinkling stars on the outfit and above the head
+    for (let i = 0; i < 6; i++) { ctx.fillStyle = `rgba(255,255,255,${0.4 + 0.6 * Math.abs(Math.sin(t * 0.1 + i))})`; ctx.fillRect(-6 + (i * 5) % 13, 6 + (i * 7) % 12, 2, 2); }
+    for (let i = 0; i < 3; i++) { ctx.fillStyle = `rgba(255,236,150,${0.5 + 0.5 * Math.abs(Math.sin(t * 0.12 + i * 2))})`; ctx.fillRect(-8 + i * 7, -16 - (i % 2) * 3, 3, 3); }
   }
   if (sk.extra === 'crew') {                   // fast-food crew: red cap with a yellow stripe, name badge
     rect('#da291c', -8, -11, 16, 5); rect('#ffc72c', -8, -8, 16, 1.5); rect('#da291c', 4, -7, 9, 2);
